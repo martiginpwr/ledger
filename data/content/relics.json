@@ -1,0 +1,58 @@
+[
+  {
+    "id": "war_banner",
+    "name": "War Banner",
+    "description": "+1 Might on all attacks and raids.",
+    "effects": {
+      "might": 1
+    }
+  },
+  {
+    "id": "iron_sigil",
+    "name": "Iron Sigil",
+    "description": "+1 Guard.",
+    "effects": {
+      "guard": 1
+    }
+  },
+  {
+    "id": "storm_lens",
+    "name": "Storm Lens",
+    "description": "+1 Arcana.",
+    "effects": {
+      "arcana": 1
+    }
+  },
+  {
+    "id": "lucky_coin",
+    "name": "Lucky Coin",
+    "description": "+1 Fortune and better gambling odds.",
+    "effects": {
+      "fortune": 1
+    }
+  },
+  {
+    "id": "wayfinder_boots",
+    "name": "Wayfinder Boots",
+    "description": "+1 Mobility.",
+    "effects": {
+      "mobility": 1
+    }
+  },
+  {
+    "id": "landlord_seal",
+    "name": "Landlord Seal",
+    "description": "Owned properties pay +1 gold during world phase.",
+    "effects": {
+      "property_income_bonus": 1
+    }
+  },
+  {
+    "id": "embershard",
+    "name": "Embershard",
+    "description": "Shrine healing restores +2 HP.",
+    "effects": {
+      "shrine_heal_bonus": 2
+    }
+  }
+]

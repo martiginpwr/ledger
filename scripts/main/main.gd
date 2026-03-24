@@ -6,6 +6,7 @@ const SKILLS_PATH := "res://data/content/skills.json"
 const ITEMS_PATH := "res://data/content/items.json"
 const MOBS_PATH := "res://data/content/mobs.json"
 const BOSSES_PATH := "res://data/content/bosses.json"
+const RELICS_PATH := "res://data/content/relics.json"
 const OBJECTIVES_PATH := "res://data/content/objectives.json"
 const PRESENTATION_PATH := "res://data/ui/presentation.json"
 const AUTOSAVE_PATH := "user://autosave_match.json"
@@ -57,6 +58,7 @@ var _skills: Array = []
 var _items_data: Array = []
 var _mobs_data: Array = []
 var _bosses_data: Array = []
+var _relics_data: Array = []
 var _objectives_data: Array = []
 var _presentation: Dictionary = {}
 var _board: Dictionary = {}
@@ -91,6 +93,8 @@ var _board_offset := Vector2.ZERO
 var _board_texture: Texture2D
 var _cell_icon_textures: Dictionary = {}
 var _action_icon_textures: Dictionary = {}
+var _notice_time_left := 0.0
+var _notice_accent_color := Color("38bdf8")
 var _animating_player_index := -1
 var _next_mob_instance_id := 1
 var _is_game_over := false
@@ -114,6 +118,9 @@ var _new_board_button: Button
 var _action_hint_label: Label
 var _action_detail_label: Label
 var _action_buttons: Array = []
+var _notice_panel: PanelContainer
+var _notice_title_label: Label
+var _notice_detail_label: Label
 var _menu_overlay: Control
 var _menu_message_label: Label
 var _continue_button: Button
@@ -149,6 +156,15 @@ func _process(delta: float) -> void:
 			return float(entry.get("age", 0.0)) < float(entry.get("duration", 1.0))
 		)
 		queue_redraw()
+
+	if _notice_time_left > 0.0:
+		_notice_time_left = max(0.0, _notice_time_left - delta)
+		if _notice_panel != null:
+			var alpha := 1.0
+			if _notice_time_left < 0.45:
+				alpha = _notice_time_left / 0.45
+			_notice_panel.modulate = Color(1.0, 1.0, 1.0, clampf(alpha, 0.0, 1.0))
+			_notice_panel.visible = _notice_time_left > 0.0
 
 	_update_ui()
 
@@ -401,6 +417,42 @@ func _build_ui() -> void:
 		cell_action_row.add_child(action_button)
 		_action_buttons.append(action_button)
 
+	_notice_panel = PanelContainer.new()
+	_notice_panel.anchor_left = 0.5
+	_notice_panel.anchor_top = 0.0
+	_notice_panel.anchor_right = 0.5
+	_notice_panel.anchor_bottom = 0.0
+	_notice_panel.offset_left = -280.0
+	_notice_panel.offset_top = PANEL_MARGIN
+	_notice_panel.offset_right = 280.0
+	_notice_panel.offset_bottom = PANEL_MARGIN + 92.0
+	_notice_panel.visible = false
+	_notice_panel.modulate = Color.WHITE
+	_notice_panel.add_theme_stylebox_override("panel", _make_stylebox(Color("0f172a"), Color("38bdf8"), 18))
+	add_child(_notice_panel)
+
+	var notice_margin := MarginContainer.new()
+	notice_margin.add_theme_constant_override("margin_left", 16)
+	notice_margin.add_theme_constant_override("margin_top", 12)
+	notice_margin.add_theme_constant_override("margin_right", 16)
+	notice_margin.add_theme_constant_override("margin_bottom", 12)
+	_notice_panel.add_child(notice_margin)
+
+	var notice_vbox := VBoxContainer.new()
+	notice_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	notice_vbox.add_theme_constant_override("separation", 4)
+	notice_margin.add_child(notice_vbox)
+
+	_notice_title_label = Label.new()
+	_notice_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_style_label(_notice_title_label, 22, Color("f8fafc"))
+	notice_vbox.add_child(_notice_title_label)
+
+	_notice_detail_label = Label.new()
+	_notice_detail_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_style_label(_notice_detail_label, 14, Color("dbeafe"), 18.0)
+	notice_vbox.add_child(_notice_detail_label)
+
 	_menu_overlay = Control.new()
 	_menu_overlay.anchor_right = 1.0
 	_menu_overlay.anchor_bottom = 1.0
@@ -527,6 +579,24 @@ func _show_main_menu(message: String = "") -> void:
 	_continue_button.disabled = not _autosave_exists()
 	_menu_overlay.visible = true
 	_update_ui()
+
+
+func _show_notice(title: String, detail: String = "", accent_color: Color = Color("38bdf8"), duration: float = 2.8) -> void:
+	if _notice_panel == null:
+		return
+	_notice_accent_color = accent_color
+	_notice_panel.add_theme_stylebox_override("panel", _make_stylebox(Color("0f172a"), accent_color, 18))
+	_notice_title_label.text = title
+	_notice_detail_label.text = detail
+	_notice_time_left = duration
+	_notice_panel.modulate = Color.WHITE
+	_notice_panel.visible = true
+
+
+func _hide_notice() -> void:
+	_notice_time_left = 0.0
+	if _notice_panel != null:
+		_notice_panel.visible = false
 
 
 func _hide_main_menu() -> void:
@@ -691,6 +761,7 @@ func _load_content() -> bool:
 	var items: Variant = loader.load_json(ITEMS_PATH)
 	var mobs: Variant = loader.load_json(MOBS_PATH)
 	var bosses: Variant = loader.load_json(BOSSES_PATH)
+	var relics: Variant = loader.load_json(RELICS_PATH)
 	var objectives: Variant = loader.load_json(OBJECTIVES_PATH)
 	var presentation: Variant = loader.load_json(PRESENTATION_PATH)
 
@@ -712,6 +783,9 @@ func _load_content() -> bool:
 	if typeof(bosses) != TYPE_ARRAY:
 		push_error("Bosses failed to load from %s" % BOSSES_PATH)
 		return false
+	if typeof(relics) != TYPE_ARRAY:
+		push_error("Relics failed to load from %s" % RELICS_PATH)
+		return false
 	if typeof(objectives) != TYPE_ARRAY:
 		push_error("Objectives failed to load from %s" % OBJECTIVES_PATH)
 		return false
@@ -722,6 +796,7 @@ func _load_content() -> bool:
 	_items_data = items
 	_mobs_data = mobs
 	_bosses_data = bosses
+	_relics_data = relics
 	_objectives_data = objectives
 	_presentation = presentation if typeof(presentation) == TYPE_DICTIONARY else {}
 	_load_presentation_assets()
@@ -892,6 +967,7 @@ func _build_players(player_count: int) -> Array:
 					"bosses_defeated": 0,
 					"casino_wins": 0
 				},
+				"relics": [],
 				"inventory": [],
 				"cell_id": start_cell_id,
 				"board_position": _cell_world_position(start_cell_id),
@@ -975,10 +1051,18 @@ func _claim_objective(slot_index: int, player_index: int) -> void:
 	_players[player_index]["gold"] = int(_players[player_index].get("gold", 0)) + reward_gold
 	_grant_renown(player_index, reward_renown)
 	_spawn_player_floating_text(player_index, objective_name, Color("f9a8d4"), 1.3)
+	_show_notice(
+		"Contract Complete",
+		"%s secures %s." % [_players[player_index].get("name", "Player"), objective_name],
+		Color("f472b6"),
+		3.0
+	)
 	_append_log(
 		"%s secured contract '%s' for +%d gold and +%d Renown." %
 		[_players[player_index].get("name", "Player"), objective_name, reward_gold, reward_renown]
 	)
+	if reward_renown >= 3:
+		_grant_random_relic(player_index, objective_name)
 	var replacement := _draw_next_objective()
 	if replacement.is_empty():
 		_active_objectives.remove_at(slot_index)
@@ -1038,8 +1122,8 @@ func _player_has_origin(player_index: int, origin_id: String) -> bool:
 	return str(_players[player_index].get("origin_id", "")) == origin_id
 
 
-func _movement_bonus_for_player(player: Dictionary) -> int:
-	var mobility := int(player.get("stats", {}).get("mobility", 0))
+func _movement_bonus_for_player(player_index: int) -> int:
+	var mobility := _effective_player_stat(player_index, "mobility")
 	if mobility >= 4:
 		return 2
 	if mobility >= 2:
@@ -1207,6 +1291,7 @@ func _resolve_start_turn_mob_encounter() -> bool:
 		return false
 
 	_append_log("%s starts the turn under pressure from a roaming mob." % player.get("name", "Player"))
+	_show_notice("Ambushed", "%s starts the turn locked in combat." % player.get("name", "Player"), Color("ef4444"), 2.6)
 	_resolve_mob_combat(_current_player_index, mob_id)
 	if _force_end_turn_after_resolution:
 		_force_end_turn_after_resolution = false
@@ -1241,6 +1326,12 @@ func _start_turn() -> void:
 			player.get("origin_name", "Origin"),
 			_cell_name(player.get("cell_id", ""))
 		]
+	)
+	_show_notice(
+		"%s's Turn" % player.get("name", "Player"),
+		"Round %d  |  %s at %s" % [_round_number, player.get("origin_name", "Origin"), _cell_name(player.get("cell_id", ""))],
+		player.get("color", Color("38bdf8")),
+		2.2
 	)
 	if _resolve_start_turn_mob_encounter():
 		return
@@ -1320,7 +1411,7 @@ func _on_action_button_mouse_exited(button_index: int) -> void:
 func _roll_current_turn(is_auto: bool) -> void:
 	var faces: Array = _rules.get("movement_die_faces", [1, 2, 2, 3, 3, 4])
 	_last_roll = int(faces[_rng.randi_range(0, faces.size() - 1)])
-	var mobility_bonus := _movement_bonus_for_player(_players[_current_player_index])
+	var mobility_bonus := _movement_bonus_for_player(_current_player_index)
 	_current_move_steps = _last_roll + mobility_bonus
 	var current_cell_id := str(_players[_current_player_index].get("cell_id", ""))
 	_reachable_cells = _build_reachable_cells(current_cell_id, _current_move_steps)
@@ -1492,10 +1583,11 @@ func _resolve_destination(cell_id: String) -> void:
 			message += " " + outcome
 			_increment_objective_counter(_current_player_index, "events_resolved")
 		"shrine":
-			message += " The shrine's calm restores 1 HP."
+			var shrine_restoration := 1 + _player_relic_bonus(_current_player_index, "shrine_heal_bonus")
+			message += " The shrine's calm restores %d HP." % shrine_restoration
 			_players[_current_player_index]["hp"] = min(
 				int(player.get("max_hp", 0)),
-				int(player.get("hp", 0)) + 1
+				int(player.get("hp", 0)) + shrine_restoration
 			)
 			_increment_objective_counter(_current_player_index, "shrine_visits")
 		"property":
@@ -1536,7 +1628,7 @@ func _resolve_destination(cell_id: String) -> void:
 
 func _resolve_event_result(player_index: int) -> String:
 	var player: Dictionary = _players[player_index]
-	var fortune := int(player.get("stats", {}).get("fortune", 0))
+	var fortune := _effective_player_stat(player_index, "fortune")
 	var event_roll := _rng.randi_range(1, 6)
 	var total := event_roll + fortune
 	var reroll_text := ""
@@ -1557,10 +1649,12 @@ func _resolve_event_result(player_index: int) -> String:
 		_players[player_index]["gold"] = max(0, int(_players[player_index].get("gold", 0)) - 2)
 		_apply_damage_to_player(player_index, 1)
 		_spawn_player_floating_text(player_index, "-2g", Color("fda4af"))
+		_show_notice("Bad Omen", "%s springs an ambush." % player.get("name", "Player"), Color("fb7185"), 2.4)
 		return "Event roll %d: an ambush costs 2 gold and 1 HP.%s" % [total, reroll_text]
 	if total <= 5:
 		_players[player_index]["gold"] = int(_players[player_index].get("gold", 0)) + 3
 		_spawn_player_floating_text(player_index, "+3g", Color("fbbf24"))
+		_show_notice("Hidden Cache", "%s uncovers 3 gold." % player.get("name", "Player"), Color("fbbf24"), 2.4)
 		return "Event roll %d: a hidden cache grants +3 gold.%s" % [total, reroll_text]
 	if total <= 7:
 		_players[player_index]["hp"] = min(
@@ -1568,14 +1662,18 @@ func _resolve_event_result(player_index: int) -> String:
 			int(_players[player_index].get("hp", 0)) + 3
 		)
 		_spawn_player_floating_text(player_index, "+3 HP", Color("86efac"))
+		_show_notice("Shrine Windfall", "%s is restored by roaming spirits." % player.get("name", "Player"), Color("4ade80"), 2.4)
 		return "Event roll %d: a calm blessing restores 3 HP.%s" % [total, reroll_text]
 	if total <= 9:
 		_grant_renown(player_index, 1)
+		_show_notice("Heroic Moment", "%s earns +1 Renown." % player.get("name", "Player"), Color("fde68a"), 2.6)
 		return "Event roll %d: a daring moment earns +1 Renown.%s" % [total, reroll_text]
 
 	_players[player_index]["gold"] = int(_players[player_index].get("gold", 0)) + 2
 	_grant_renown(player_index, 1)
 	_spawn_player_floating_text(player_index, "+2g", Color("fbbf24"))
+	_show_notice("Great Fortune", "%s hits a legendary break." % player.get("name", "Player"), Color("c084fc"), 2.8)
+	_grant_random_relic(player_index, "a legendary event")
 	return "Event roll %d: a major break grants +2 gold and +1 Renown.%s" % [total, reroll_text]
 
 
@@ -1609,6 +1707,7 @@ func _end_turn() -> void:
 
 func _run_world_phase() -> void:
 	_reset_round_passives()
+	_show_notice("World Phase", "Properties pay out, shops refill, and mobs roam.", Color("60a5fa"), 2.8)
 	var income_summaries := []
 	var restocked_shops := []
 	for property_id in _property_states.keys():
@@ -1625,7 +1724,7 @@ func _run_world_phase() -> void:
 			_property_states[property_id] = property_state
 			continue
 
-		var income := _property_income_for_level(level)
+		var income := _property_income_for_level(level) + _player_relic_bonus(owner_index, "property_income_bonus")
 		_players[owner_index]["gold"] = int(_players[owner_index].get("gold", 0)) + income
 		income_summaries.append(
 			"%s +%d from %s" %
@@ -2166,7 +2265,7 @@ func _update_ui() -> void:
 	_title_label.text = "%s" % _rules.get("project_name", "Board Prototype")
 	_status_label.text = _match_status_text()
 	_turn_label.text = (
-		"Round %d\n%s (%s)\nHP %d/%d   Gold %d   Renown %d\nMight %d   Guard %d   Arcana %d\nFortune %d   Mobility %d\nGear Atk %+d   Gear Def %+d\nSkill: %s%s\nPassive: %s\nBag: %s" %
+		"Round %d\n%s (%s)\nHP %d/%d   Gold %d   Renown %d\nMight %s   Guard %s   Arcana %s\nFortune %s   Mobility %s\nGear Atk %+d   Gear Def %+d\nSkill: %s%s\nPassive: %s\nRelics: %s\nBag: %s" %
 		[
 			_round_number,
 			current_player.get("name", "Player"),
@@ -2175,16 +2274,17 @@ func _update_ui() -> void:
 			current_player.get("max_hp", 0),
 			current_player.get("gold", 0),
 			current_player.get("renown", 0),
-			current_player.get("stats", {}).get("might", 0),
-			current_player.get("stats", {}).get("guard", 0),
-			current_player.get("stats", {}).get("arcana", 0),
-			current_player.get("stats", {}).get("fortune", 0),
-			current_player.get("stats", {}).get("mobility", 0),
+			_formatted_stat_with_relic(_current_player_index, "might"),
+			_formatted_stat_with_relic(_current_player_index, "guard"),
+			_formatted_stat_with_relic(_current_player_index, "arcana"),
+			_formatted_stat_with_relic(_current_player_index, "fortune"),
+			_formatted_stat_with_relic(_current_player_index, "mobility"),
 			current_player.get("weapon_bonus", 0),
 			current_player.get("armor_bonus", 0),
 			starter_skill_name,
 			" (CD %d)" % starter_skill_cooldown if starter_skill_cooldown > 0 else "",
 			current_player.get("passive_text", "None"),
+			_format_relics_text(_current_player_index),
 			", ".join(inventory_names) if not inventory_names.is_empty() else "Empty"
 		]
 	)
@@ -2490,6 +2590,104 @@ func _player_name_safe(player_index: int, fallback: String = "Player") -> String
 	if player_index < 0 or player_index >= _players.size():
 		return fallback
 	return str(_players[player_index].get("name", fallback))
+
+
+func _relic_capacity() -> int:
+	return 2
+
+
+func _relic_by_id(relic_id: String) -> Dictionary:
+	for relic_variant in _relics_data:
+		var relic: Dictionary = relic_variant
+		if str(relic.get("id", "")) == relic_id:
+			return relic
+	return {}
+
+
+func _player_relics(player_index: int) -> Array:
+	if player_index < 0 or player_index >= _players.size():
+		return []
+	return _players[player_index].get("relics", [])
+
+
+func _player_has_relic(player_index: int, relic_id: String) -> bool:
+	for relic_id_variant in _player_relics(player_index):
+		if str(relic_id_variant) == relic_id:
+			return true
+	return false
+
+
+func _player_relic_bonus(player_index: int, effect_key: String) -> int:
+	if player_index < 0 or player_index >= _players.size() or effect_key.is_empty():
+		return 0
+	var total := 0
+	for relic_id_variant in _player_relics(player_index):
+		var relic: Dictionary = _relic_by_id(str(relic_id_variant))
+		var effects: Dictionary = relic.get("effects", {})
+		total += int(effects.get(effect_key, 0))
+	return total
+
+
+func _effective_player_stat(player_index: int, stat_name: String) -> int:
+	if player_index < 0 or player_index >= _players.size():
+		return 0
+	var base_stats: Dictionary = _players[player_index].get("stats", {})
+	return int(base_stats.get(stat_name, 0)) + _player_relic_bonus(player_index, stat_name)
+
+
+func _formatted_stat_with_relic(player_index: int, stat_name: String) -> String:
+	if player_index < 0 or player_index >= _players.size():
+		return "0"
+	var base_stats: Dictionary = _players[player_index].get("stats", {})
+	var base_value := int(base_stats.get(stat_name, 0))
+	var relic_bonus := _player_relic_bonus(player_index, stat_name)
+	if relic_bonus > 0:
+		return "%d (+%d)" % [base_value + relic_bonus, relic_bonus]
+	return str(base_value)
+
+
+func _grant_random_relic(player_index: int, source_label: String) -> bool:
+	if player_index < 0 or player_index >= _players.size():
+		return false
+	var current_relics: Array = _player_relics(player_index).duplicate(true)
+	if current_relics.size() >= _relic_capacity():
+		return false
+
+	var candidates := []
+	for relic_variant in _relics_data:
+		var relic: Dictionary = relic_variant
+		var relic_id := str(relic.get("id", ""))
+		if relic_id.is_empty() or _player_has_relic(player_index, relic_id):
+			continue
+		candidates.append(relic)
+	if candidates.is_empty():
+		return false
+
+	var chosen: Dictionary = candidates[_rng.randi_range(0, candidates.size() - 1)]
+	current_relics.append(str(chosen.get("id", "")))
+	_players[player_index]["relics"] = current_relics
+	_show_notice(
+		"Relic Found",
+		"%s claims %s from %s." % [_players[player_index].get("name", "Player"), chosen.get("name", "a relic"), source_label],
+		Color("f9a8d4"),
+		3.2
+	)
+	_append_log(
+		"%s claimed relic %s: %s" %
+		[_players[player_index].get("name", "Player"), chosen.get("name", "Relic"), chosen.get("description", "")]
+	)
+	return true
+
+
+func _format_relics_text(player_index: int) -> String:
+	var names := []
+	for relic_id_variant in _player_relics(player_index):
+		var relic: Dictionary = _relic_by_id(str(relic_id_variant))
+		if not relic.is_empty():
+			names.append(str(relic.get("name", "Relic")))
+	if names.is_empty():
+		return "None"
+	return ", ".join(names)
 
 
 func _action_icon_for_action(action: Dictionary) -> Texture2D:
@@ -2856,6 +3054,7 @@ func _perform_major_action(action: Dictionary) -> void:
 				_property_states[cell_id]["owner_index"] = _current_player_index
 				_property_states[cell_id]["level"] = 1
 				_property_states[cell_id]["income_blocked"] = false
+				_show_notice("Outpost Claimed", "%s secures %s." % [player_name, _cell_name(cell_id)], Color("22c55e"), 2.6)
 				_append_log("%s claimed %s as an Outpost for %d gold." % [player_name, _cell_name(cell_id), claim_cost])
 				_evaluate_player_objectives(_current_player_index)
 				consumed = true
@@ -2871,6 +3070,7 @@ func _perform_major_action(action: Dictionary) -> void:
 					if int(state.get("level", 0)) == 3:
 						var stronghold_renown := int(_rules.get("property_levels", {}).get("stronghold", {}).get("renown_on_upgrade", 1))
 						_grant_renown(_current_player_index, stronghold_renown)
+					_show_notice("Property Upgraded", "%s fortifies %s to level %d." % [player_name, _cell_name(cell_id), int(state.get("level", 0))], Color("4ade80"), 2.6)
 					_append_log(
 						"%s upgraded %s to level %d for %d gold." %
 						[player_name, _cell_name(cell_id), int(state.get("level", 0)), upgrade_cost]
@@ -2881,13 +3081,15 @@ func _perform_major_action(action: Dictionary) -> void:
 			consumed = _perform_property_raid(cell_id)
 		"heal_at_shrine":
 			if int(player.get("gold", 0)) >= 3:
+				var shrine_heal := 6 + _player_relic_bonus(_current_player_index, "shrine_heal_bonus")
 				_players[_current_player_index]["gold"] = int(player.get("gold", 0)) - 3
 				_players[_current_player_index]["hp"] = min(
 					int(player.get("max_hp", 0)),
-					int(player.get("hp", 0)) + 6
+					int(player.get("hp", 0)) + shrine_heal
 				)
-				_spawn_player_floating_text(_current_player_index, "+6 HP", Color("86efac"))
-				_append_log("%s prayed at %s and restored 6 HP." % [player_name, _cell_name(cell_id)])
+				_spawn_player_floating_text(_current_player_index, "+%d HP" % shrine_heal, Color("86efac"))
+				_show_notice("Shrine Rest", "%s restores %d HP." % [player_name, shrine_heal], Color("4ade80"), 2.5)
+				_append_log("%s prayed at %s and restored %d HP." % [player_name, _cell_name(cell_id), shrine_heal])
 				consumed = true
 		"train_signature_stat":
 			consumed = _train_signature_stat()
@@ -2896,6 +3098,7 @@ func _perform_major_action(action: Dictionary) -> void:
 				_players[_current_player_index]["gold"] = int(player.get("gold", 0)) - 5
 				_players[_current_player_index]["weapon_bonus"] = int(player.get("weapon_bonus", 0)) + 1
 				_spawn_player_floating_text(_current_player_index, "Blade +1", Color("93c5fd"))
+				_show_notice("Gear Upgraded", "%s sharpens their weapon." % player_name, Color("60a5fa"), 2.5)
 				_append_log("%s bought a weapon upgrade at %s." % [player_name, _cell_name(cell_id)])
 				_increment_objective_counter(_current_player_index, "shop_buys")
 				consumed = true
@@ -2904,6 +3107,7 @@ func _perform_major_action(action: Dictionary) -> void:
 				_players[_current_player_index]["gold"] = int(player.get("gold", 0)) - 5
 				_players[_current_player_index]["armor_bonus"] = int(player.get("armor_bonus", 0)) + 1
 				_spawn_player_floating_text(_current_player_index, "Armor +1", Color("93c5fd"))
+				_show_notice("Gear Upgraded", "%s reinforces their armor." % player_name, Color("60a5fa"), 2.5)
 				_append_log("%s bought an armor upgrade at %s." % [player_name, _cell_name(cell_id)])
 				_increment_objective_counter(_current_player_index, "shop_buys")
 				consumed = true
@@ -2951,7 +3155,7 @@ func _perform_property_raid(cell_id: String) -> bool:
 	var owner: Dictionary = _players[owner_index]
 	var player_name := str(player.get("name", "Player"))
 	var raid_bonus: Dictionary = _consume_power_strike_bonus(_current_player_index, true)
-	var raid_total := _rng.randi_range(1, 6) + int(player.get("stats", {}).get("might", 0)) + int(player.get("weapon_bonus", 0)) + int(raid_bonus.get("attack_bonus", 0)) + int(player.get("temporary_raid_bonus", 0))
+	var raid_total := _rng.randi_range(1, 6) + _effective_player_stat(_current_player_index, "might") + int(player.get("weapon_bonus", 0)) + int(raid_bonus.get("attack_bonus", 0)) + int(player.get("temporary_raid_bonus", 0))
 	var defense_total := _rng.randi_range(1, 6) + _property_defense_rating(int(state.get("level", 0)), owner_index)
 	var trap_text := ""
 	if bool(state.get("trap_armed", false)):
@@ -2962,6 +3166,7 @@ func _perform_property_raid(cell_id: String) -> bool:
 	_players[_current_player_index]["temporary_raid_bonus"] = 0
 	if margin <= 0:
 		_property_states[cell_id] = state
+		_show_notice("Raid Repelled", "%s fails to crack %s." % [player_name, _cell_name(cell_id)], Color("fb7185"), 2.5)
 		_append_log("%s failed to raid %s.%s" % [player_name, _cell_name(cell_id), trap_text])
 		return true
 
@@ -2986,6 +3191,7 @@ func _perform_property_raid(cell_id: String) -> bool:
 
 	_property_states[cell_id] = state
 	_increment_objective_counter(_current_player_index, "raids_won")
+	_show_notice("Raid Successful", "%s plunders %s." % [player_name, _cell_name(cell_id)], Color("f97316"), 2.6)
 	_append_log(
 		"%s raided %s, stole %d gold from %s, and blocked its next income.%s%s%s" %
 		[player_name, _cell_name(cell_id), stolen_gold, owner.get("name", "Player"), downgrade_text, passive_text, trap_text]
@@ -3034,7 +3240,7 @@ func _perform_casino_coin_flip() -> bool:
 	_players[_current_player_index]["gold"] = int(player.get("gold", 0)) - 3
 	var player_name := str(player.get("name", "Player"))
 	var roll := _rng.randi_range(1, 6)
-	var fortune := int(player.get("stats", {}).get("fortune", 0))
+	var fortune := _effective_player_stat(_current_player_index, "fortune")
 	var total := roll + fortune
 	var reroll_text := ""
 	if bool(player.get("fortune_card_ready", false)):
@@ -3054,9 +3260,13 @@ func _perform_casino_coin_flip() -> bool:
 		_spawn_player_floating_text(_current_player_index, "+3g", Color("fbbf24"))
 		_append_log("%s won the coin flip at the casino and came out ahead.%s" % [player_name, reroll_text])
 		_increment_objective_counter(_current_player_index, "casino_wins")
+		_show_notice("Casino Win", "%s walks away richer." % player_name, Color("fbbf24"), 2.5)
+		if total >= 10:
+			_grant_random_relic(_current_player_index, "the high table")
 	else:
 		_spawn_player_floating_text(_current_player_index, "-3g", Color("fda4af"))
 		_append_log("%s lost the coin flip at the casino.%s" % [player_name, reroll_text])
+		_show_notice("Casino Loss", "%s loses the wager." % player_name, Color("fb7185"), 2.3)
 
 	return true
 
@@ -3083,6 +3293,7 @@ func _buy_shop_item(cell_id: String, item_id: String) -> bool:
 		stock.remove_at(stock_index)
 		_shop_states[cell_id]["stock"] = stock
 		_spawn_player_floating_text(_current_player_index, stock_entry.get("name", "Item"), Color("7dd3fc"))
+		_show_notice("Purchased", "%s buys %s." % [_players[_current_player_index].get("name", "Player"), stock_entry.get("name", "Item")], Color("60a5fa"), 2.4)
 		_append_log("%s bought %s at %s." % [_players[_current_player_index].get("name", "Player"), stock_entry.get("name", "Item"), _cell_name(cell_id)])
 		_increment_objective_counter(_current_player_index, "shop_buys")
 		return true
@@ -3185,7 +3396,11 @@ func _consume_power_strike_bonus(player_index: int, is_physical: bool) -> Dictio
 
 
 func _player_guard_total(player: Dictionary) -> int:
-	return int(player.get("stats", {}).get("guard", 0)) + int(player.get("armor_bonus", 0)) + int(player.get("temporary_guard_bonus", 0))
+	var relic_guard_bonus := 0
+	for relic_id_variant in player.get("relics", []):
+		var relic: Dictionary = _relic_by_id(str(relic_id_variant))
+		relic_guard_bonus += int(relic.get("effects", {}).get("guard", 0))
+	return int(player.get("stats", {}).get("guard", 0)) + relic_guard_bonus + int(player.get("armor_bonus", 0)) + int(player.get("temporary_guard_bonus", 0))
 
 
 func _perform_arc_bolt_on_player(target_player_index: int) -> bool:
@@ -3196,7 +3411,7 @@ func _perform_arc_bolt_on_player(target_player_index: int) -> bool:
 
 	var attacker: Dictionary = _players[_current_player_index]
 	var defender: Dictionary = _players[target_player_index]
-	var attack_total := _rng.randi_range(1, 6) + int(attacker.get("stats", {}).get("arcana", 0)) + 1
+	var attack_total := _rng.randi_range(1, 6) + _effective_player_stat(_current_player_index, "arcana") + 1
 	var defense_total := _rng.randi_range(1, 6) + _player_guard_total(defender)
 	var damage := maxi(1, attack_total - defense_total + 2)
 	_apply_damage_to_player(target_player_index, damage)
@@ -3215,7 +3430,7 @@ func _perform_arc_bolt_on_mob(mob_id: String) -> bool:
 
 	var attacker: Dictionary = _players[_current_player_index]
 	var mob_state: Dictionary = _mob_states[mob_id]
-	var attack_total := _rng.randi_range(1, 6) + int(attacker.get("stats", {}).get("arcana", 0)) + 1
+	var attack_total := _rng.randi_range(1, 6) + _effective_player_stat(_current_player_index, "arcana") + 1
 	var defense_total := _rng.randi_range(1, 6) + _monster_defense_value(mob_state)
 	var damage := maxi(1, attack_total - defense_total + 2)
 	mob_state["hp"] = int(mob_state.get("hp", 0)) - damage
@@ -3241,7 +3456,7 @@ func _perform_arc_bolt_on_boss(cell_id: String) -> bool:
 		return false
 
 	var attacker: Dictionary = _players[_current_player_index]
-	var attack_total := _rng.randi_range(1, 6) + int(attacker.get("stats", {}).get("arcana", 0)) + 1
+	var attack_total := _rng.randi_range(1, 6) + _effective_player_stat(_current_player_index, "arcana") + 1
 	var defense_total := _rng.randi_range(1, 6) + _monster_defense_value(boss_state)
 	var damage := maxi(1, attack_total - defense_total + 2)
 	boss_state["hp"] = int(boss_state.get("hp", 0)) - damage
@@ -3254,6 +3469,8 @@ func _perform_arc_bolt_on_boss(cell_id: String) -> bool:
 		_increment_objective_counter(_current_player_index, "bosses_defeated")
 		boss_state["cleared"] = true
 		boss_state["hp"] = 0
+		_show_notice("Boss Defeated", "%s falls to arc fire." % boss_state.get("name", "Boss"), Color("fb923c"), 3.0)
+		_grant_random_relic(_current_player_index, boss_state.get("name", "the dungeon"))
 		_append_log("%s is blasted apart, and the dungeon reward is yours." % boss_state.get("name", "Boss"))
 	_boss_states[cell_id] = boss_state
 	return true
@@ -3349,6 +3566,8 @@ func _perform_boss_challenge() -> bool:
 			boss_state["cleared"] = true
 			boss_state["hp"] = 0
 			_boss_states[cell_id] = boss_state
+			_show_notice("Boss Defeated", "%s breaks before %s." % [boss_name, player_name], Color("fb923c"), 3.0)
+			_grant_random_relic(_current_player_index, boss_name)
 			_append_log("%s defeated %s and claimed the dungeon reward." % [player_name, boss_name])
 			return true
 
@@ -3616,6 +3835,12 @@ func _handle_player_defeat(winner_index: int, loser_index: int) -> void:
 		"%s defeated %s in open combat." %
 		[_players[winner_index].get("name", "Player"), _players[loser_index].get("name", "Player")]
 	)
+	_show_notice(
+		"Hero Down",
+		"%s defeats %s." % [_players[winner_index].get("name", "Player"), _players[loser_index].get("name", "Player")],
+		Color("fb7185"),
+		2.8
+	)
 	_respawn_player(loser_index)
 	if loser_index == _current_player_index:
 		_force_end_turn_after_resolution = true
@@ -3625,15 +3850,25 @@ func _roll_player_damage(attacker_index: int, defender_index: int, is_physical: 
 	var attacker: Dictionary = _players[attacker_index]
 	var defender: Dictionary = _players[defender_index]
 	var attack_bonus: Dictionary = _consume_power_strike_bonus(attacker_index, is_physical)
-	var attack_total := _rng.randi_range(1, 6) + int(attacker.get("stats", {}).get("might", 0)) + int(attacker.get("weapon_bonus", 0)) + int(attack_bonus.get("attack_bonus", 0))
+	var attacker_relic_bonus := 0
+	for relic_id_variant in attacker.get("relics", []):
+		var relic: Dictionary = _relic_by_id(str(relic_id_variant))
+		attacker_relic_bonus += int(relic.get("effects", {}).get("might", 0))
+	var attack_total := _rng.randi_range(1, 6) + int(attacker.get("stats", {}).get("might", 0)) + attacker_relic_bonus + int(attacker.get("weapon_bonus", 0)) + int(attack_bonus.get("attack_bonus", 0))
 	var defense_total := _rng.randi_range(1, 6) + _player_guard_total(defender)
 	return maxi(1, attack_total - defense_total + int(_rules.get("combat", {}).get("base_damage_bonus", 2)) + int(attack_bonus.get("damage_bonus", 0)))
 
 
 func _roll_player_vs_monster_damage(player_index: int, monster_state: Dictionary) -> int:
 	var player: Dictionary = _players[player_index]
-	var physical_attack: int = int(player.get("stats", {}).get("might", 0)) + int(player.get("weapon_bonus", 0))
-	var magic_attack: int = int(player.get("stats", {}).get("arcana", 0))
+	var relic_might_bonus := 0
+	var relic_arcana_bonus := 0
+	for relic_id_variant in player.get("relics", []):
+		var relic: Dictionary = _relic_by_id(str(relic_id_variant))
+		relic_might_bonus += int(relic.get("effects", {}).get("might", 0))
+		relic_arcana_bonus += int(relic.get("effects", {}).get("arcana", 0))
+	var physical_attack: int = int(player.get("stats", {}).get("might", 0)) + relic_might_bonus + int(player.get("weapon_bonus", 0))
+	var magic_attack: int = int(player.get("stats", {}).get("arcana", 0)) + relic_arcana_bonus
 	var is_physical := physical_attack >= magic_attack
 	var attack_stat: int = maxi(physical_attack, magic_attack)
 	var attack_bonus: Dictionary = _consume_power_strike_bonus(player_index, is_physical)
