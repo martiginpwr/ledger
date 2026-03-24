@@ -3,6 +3,7 @@ extends Control
 const RULES_PATH := "res://data/balance/game_rules.json"
 const ORIGINS_PATH := "res://data/content/origins.json"
 const SKILLS_PATH := "res://data/content/skills.json"
+const ITEMS_PATH := "res://data/content/items.json"
 const MOBS_PATH := "res://data/content/mobs.json"
 const BOSSES_PATH := "res://data/content/bosses.json"
 const AUTOSAVE_PATH := "user://autosave_match.json"
@@ -51,11 +52,13 @@ var _rng := RandomNumberGenerator.new()
 var _rules: Dictionary = {}
 var _origins: Array = []
 var _skills: Array = []
+var _items_data: Array = []
 var _mobs_data: Array = []
 var _bosses_data: Array = []
 var _board: Dictionary = {}
 var _players: Array = []
 var _property_states: Dictionary = {}
+var _shop_states: Dictionary = {}
 var _mob_states: Dictionary = {}
 var _boss_states: Dictionary = {}
 var _current_player_index := 0
@@ -73,6 +76,7 @@ var _hovered_cell_id := ""
 var _log_lines: Array = []
 var _raider_bonus_claimed: Dictionary = {}
 var _trickster_reroll_claimed: Dictionary = {}
+var _floating_texts: Array = []
 var _board_bounds := Rect2(-1.0, -1.0, 2.0, 2.0)
 var _board_scale := 1.0
 var _board_offset := Vector2.ZERO
@@ -122,6 +126,15 @@ func _process(delta: float) -> void:
 		_turn_time_left = max(0.0, _turn_time_left - delta)
 		if _turn_time_left <= 0.0:
 			_handle_turn_timeout()
+
+	if not _floating_texts.is_empty():
+		for floating_text_variant in _floating_texts:
+			var floating_text: Dictionary = floating_text_variant
+			floating_text["age"] = float(floating_text.get("age", 0.0)) + delta
+		_floating_texts = _floating_texts.filter(func(entry: Dictionary) -> bool:
+			return float(entry.get("age", 0.0)) < float(entry.get("duration", 1.0))
+		)
+		queue_redraw()
 
 	_update_ui()
 
@@ -175,6 +188,7 @@ func _draw() -> void:
 	_draw_cells()
 	_draw_mobs()
 	_draw_players()
+	_draw_floating_texts()
 
 
 func _build_ui() -> void:
@@ -543,6 +557,7 @@ func _save_autosave() -> void:
 		"board": _serialize_value(_board),
 		"players": _serialize_value(_players),
 		"property_states": _serialize_value(_property_states),
+		"shop_states": _serialize_value(_shop_states),
 		"mob_states": _serialize_value(_mob_states),
 		"boss_states": _serialize_value(_boss_states),
 		"current_player_index": _current_player_index,
@@ -590,6 +605,7 @@ func _load_autosave() -> bool:
 	_board = _deserialize_value(data.get("board", {}))
 	_players = _deserialize_value(data.get("players", []))
 	_property_states = _deserialize_value(data.get("property_states", {}))
+	_shop_states = _deserialize_value(data.get("shop_states", {}))
 	_mob_states = _deserialize_value(data.get("mob_states", {}))
 	_boss_states = _deserialize_value(data.get("boss_states", {}))
 	_current_player_index = int(data.get("current_player_index", 0))
@@ -612,6 +628,7 @@ func _load_autosave() -> bool:
 	_reachable_cells.clear()
 	_available_actions.clear()
 	_hovered_cell_id = ""
+	_floating_texts.clear()
 	_animating_player_index = -1
 	_refresh_board_bounds()
 	if _turn_phase == TURN_PHASE_READY_TO_END:
@@ -633,6 +650,7 @@ func _load_content() -> bool:
 	var rules: Variant = loader.load_json(RULES_PATH)
 	var origins: Variant = loader.load_json(ORIGINS_PATH)
 	var skills: Variant = loader.load_json(SKILLS_PATH)
+	var items: Variant = loader.load_json(ITEMS_PATH)
 	var mobs: Variant = loader.load_json(MOBS_PATH)
 	var bosses: Variant = loader.load_json(BOSSES_PATH)
 
@@ -645,6 +663,9 @@ func _load_content() -> bool:
 	if typeof(skills) != TYPE_ARRAY:
 		push_error("Skills failed to load from %s" % SKILLS_PATH)
 		return false
+	if typeof(items) != TYPE_ARRAY:
+		push_error("Items failed to load from %s" % ITEMS_PATH)
+		return false
 	if typeof(mobs) != TYPE_ARRAY:
 		push_error("Mobs failed to load from %s" % MOBS_PATH)
 		return false
@@ -655,6 +676,7 @@ func _load_content() -> bool:
 	_rules = rules
 	_origins = origins
 	_skills = skills
+	_items_data = items
 	_mobs_data = mobs
 	_bosses_data = bosses
 	return true
@@ -668,6 +690,7 @@ func _start_new_match(player_count: int) -> void:
 		return
 
 	_property_states.clear()
+	_shop_states.clear()
 	_mob_states.clear()
 	_boss_states.clear()
 	_raider_bonus_claimed.clear()
@@ -678,10 +701,14 @@ func _start_new_match(player_count: int) -> void:
 			_property_states[cell_id] = {
 				"owner_index": -1,
 				"level": 0,
-				"income_blocked": false
+				"income_blocked": false,
+				"trap_armed": false
 			}
+		elif str(cell_data.get("type", "")) == "shop":
+			_shop_states[cell_id] = {"stock": []}
 
 	_assign_bosses_to_board()
+	_assign_shop_stock()
 	_players = _build_players(player_count)
 	_current_player_index = 0
 	_round_number = 1
@@ -696,6 +723,7 @@ func _start_new_match(player_count: int) -> void:
 	_available_actions.clear()
 	_hovered_cell_id = ""
 	_log_lines.clear()
+	_floating_texts.clear()
 	_animating_player_index = -1
 	_next_mob_instance_id = 1
 	_is_game_over = false
@@ -752,8 +780,11 @@ func _build_players(player_count: int) -> Array:
 				"weapon_bonus": 0,
 				"armor_bonus": 0,
 				"temporary_guard_bonus": 0,
+				"temporary_raid_bonus": 0,
+				"fortune_card_ready": false,
 				"power_strike_ready": false,
 				"skill_cooldowns": {starter_skill_id: 0},
+				"inventory": [],
 				"cell_id": start_cell_id,
 				"board_position": _cell_world_position(start_cell_id),
 				"color": PLAYER_COLORS[player_index % PLAYER_COLORS.size()]
@@ -793,6 +824,14 @@ func _skill_by_id(skill_id: String) -> Dictionary:
 	return {}
 
 
+func _item_by_id(item_id: String) -> Dictionary:
+	for item_variant in _items_data:
+		var item_data: Dictionary = item_variant
+		if str(item_data.get("id", "")) == item_id:
+			return item_data
+	return {}
+
+
 func _current_player_starter_skill() -> Dictionary:
 	if _players.is_empty():
 		return {}
@@ -823,11 +862,24 @@ func _prepare_player_turn(player_index: int) -> void:
 
 	_players[player_index]["temporary_guard_bonus"] = 0
 	_players[player_index]["power_strike_ready"] = false
+	_players[player_index]["temporary_raid_bonus"] = 0
+	_players[player_index]["fortune_card_ready"] = false
 
 	var cooldowns: Dictionary = _players[player_index].get("skill_cooldowns", {}).duplicate(true)
 	for skill_id in cooldowns.keys():
 		cooldowns[skill_id] = maxi(0, int(cooldowns[skill_id]) - 1)
 	_players[player_index]["skill_cooldowns"] = cooldowns
+
+
+func _inventory_capacity() -> int:
+	return int(_rules.get("starting_state", {}).get("consumable_slots", 3))
+
+
+func _inventory_count(player_index: int) -> int:
+	if player_index < 0 or player_index >= _players.size():
+		return 0
+
+	return _players[player_index].get("inventory", []).size()
 
 
 func _assign_bosses_to_board() -> void:
@@ -857,6 +909,63 @@ func _assign_bosses_to_board() -> void:
 			"trait": str(boss_data.get("trait", "")),
 			"cleared": false
 		}
+
+
+func _assign_shop_stock() -> void:
+	if _items_data.is_empty():
+		return
+
+	for shop_cell_id in _shop_states.keys():
+		_shop_states[shop_cell_id] = {"stock": []}
+		_restock_shop_cell(str(shop_cell_id), 3)
+
+
+func _supported_shop_items() -> Array:
+	var supported_item_ids := ["minor_potion", "greater_potion", "raiders_kit", "throwing_knife", "ward_scroll", "fortune_card", "trap_kit"]
+	var stock_pool := []
+	for item_variant in _items_data:
+		var item_data: Dictionary = item_variant
+		if supported_item_ids.has(str(item_data.get("id", ""))):
+			stock_pool.append(item_data)
+	return stock_pool
+
+
+func _shop_entry_from_item(item_data: Dictionary) -> Dictionary:
+	return {
+		"id": str(item_data.get("id", "")),
+		"name": str(item_data.get("name", "Item")),
+		"cost": int(item_data.get("cost", 0)),
+		"effect": str(item_data.get("effect", "")),
+		"action_type": str(item_data.get("action_type", "quick"))
+	}
+
+
+func _restock_shop_cell(shop_cell_id: String, target_count: int) -> void:
+	if not _shop_states.has(shop_cell_id):
+		return
+	var stock_pool := _supported_shop_items()
+	if stock_pool.is_empty():
+		return
+
+	var current_stock: Array = _shop_states[shop_cell_id].get("stock", []).duplicate(true)
+	var stocked_ids := {}
+	for stock_entry_variant in current_stock:
+		var stock_entry: Dictionary = stock_entry_variant
+		stocked_ids[str(stock_entry.get("id", ""))] = true
+
+	var shuffled_pool: Array = stock_pool.duplicate(true)
+	shuffled_pool.shuffle()
+	for item_variant in shuffled_pool:
+		if current_stock.size() >= target_count:
+			break
+		var item_data: Dictionary = item_variant
+		var item_id := str(item_data.get("id", ""))
+		if stocked_ids.has(item_id):
+			continue
+		current_stock.append(_shop_entry_from_item(item_data))
+		stocked_ids[item_id] = true
+
+	_shop_states[shop_cell_id]["stock"] = current_stock
 
 
 func _resolve_start_turn_mob_encounter() -> bool:
@@ -1186,6 +1295,10 @@ func _resolve_event_result(player_index: int) -> String:
 	var event_roll := _rng.randi_range(1, 6)
 	var total := event_roll + fortune
 	var reroll_text := ""
+	if bool(player.get("fortune_card_ready", false)):
+		total += 2
+		_players[player_index]["fortune_card_ready"] = false
+		reroll_text += " Fortune Card adds +2."
 
 	if _player_has_origin(player_index, "trickster") and not bool(_trickster_reroll_claimed.get(player_index, false)) and total <= 4:
 		var reroll := _rng.randi_range(1, 6)
@@ -1198,15 +1311,18 @@ func _resolve_event_result(player_index: int) -> String:
 	if total <= 3:
 		_players[player_index]["gold"] = max(0, int(_players[player_index].get("gold", 0)) - 2)
 		_apply_damage_to_player(player_index, 1)
+		_spawn_player_floating_text(player_index, "-2g", Color("fda4af"))
 		return "Event roll %d: an ambush costs 2 gold and 1 HP.%s" % [total, reroll_text]
 	if total <= 5:
 		_players[player_index]["gold"] = int(_players[player_index].get("gold", 0)) + 3
+		_spawn_player_floating_text(player_index, "+3g", Color("fbbf24"))
 		return "Event roll %d: a hidden cache grants +3 gold.%s" % [total, reroll_text]
 	if total <= 7:
 		_players[player_index]["hp"] = min(
 			int(_players[player_index].get("max_hp", 0)),
 			int(_players[player_index].get("hp", 0)) + 3
 		)
+		_spawn_player_floating_text(player_index, "+3 HP", Color("86efac"))
 		return "Event roll %d: a calm blessing restores 3 HP.%s" % [total, reroll_text]
 	if total <= 9:
 		_grant_renown(player_index, 1)
@@ -1214,6 +1330,7 @@ func _resolve_event_result(player_index: int) -> String:
 
 	_players[player_index]["gold"] = int(_players[player_index].get("gold", 0)) + 2
 	_grant_renown(player_index, 1)
+	_spawn_player_floating_text(player_index, "+2g", Color("fbbf24"))
 	return "Event roll %d: a major break grants +2 gold and +1 Renown.%s" % [total, reroll_text]
 
 
@@ -1247,11 +1364,15 @@ func _end_turn() -> void:
 func _run_world_phase() -> void:
 	_reset_round_passives()
 	var income_summaries := []
+	var restocked_shops := []
 	for property_id in _property_states.keys():
 		var property_state: Dictionary = _property_states[property_id]
 		var owner_index := int(property_state.get("owner_index", -1))
 		var level := int(property_state.get("level", 0))
+		if bool(property_state.get("trap_armed", false)):
+			property_state["trap_armed"] = false
 		if owner_index < 0 or level <= 0:
+			_property_states[property_id] = property_state
 			continue
 		if bool(property_state.get("income_blocked", false)):
 			property_state["income_blocked"] = false
@@ -1273,6 +1394,16 @@ func _run_world_phase() -> void:
 		_append_log("World phase: the board resets and no property income is paid yet.")
 	else:
 		_append_log("World phase: %s." % ", ".join(income_summaries))
+
+	for shop_cell_id in _shop_states.keys():
+		var before_count: int = _shop_states[shop_cell_id].get("stock", []).size()
+		_restock_shop_cell(str(shop_cell_id), 3)
+		var after_count: int = _shop_states[shop_cell_id].get("stock", []).size()
+		if after_count > before_count:
+			restocked_shops.append("%s restocked to %d item(s)" % [_cell_name(str(shop_cell_id)), after_count])
+
+	if not restocked_shops.is_empty():
+		_append_log("Market phase: %s." % ", ".join(restocked_shops))
 
 	_run_mob_world_phase()
 	_refresh_available_actions()
@@ -1507,6 +1638,8 @@ func _draw_property_state_indicator(cell_id: String, screen_position: Vector2) -
 
 	if bool(property_state.get("income_blocked", false)):
 		draw_line(screen_position + Vector2(-9.0, -9.0), screen_position + Vector2(9.0, 9.0), Color("fda4af"), 2.0)
+	if bool(property_state.get("trap_armed", false)):
+		draw_circle(screen_position + Vector2(0.0, -CELL_RADIUS - 7.0), 3.0, Color("fbbf24"))
 
 
 func _draw_boss_state_indicator(cell_id: String, screen_position: Vector2) -> void:
@@ -1562,6 +1695,47 @@ func _draw_players() -> void:
 
 		if player_index == _current_player_index:
 			draw_circle(screen_position, TOKEN_RADIUS + 4.0, Color("f8fafc"), false, 1.5)
+
+
+func _draw_floating_texts() -> void:
+	var font: Font = get_theme_default_font()
+	if font == null:
+		return
+
+	for floating_text_variant in _floating_texts:
+		var floating_text: Dictionary = floating_text_variant
+		var world_position: Vector2 = _vector2_from_value(floating_text.get("world_position", Vector2.ZERO))
+		var age: float = float(floating_text.get("age", 0.0))
+		var duration: float = float(floating_text.get("duration", 1.0))
+		var t := clampf(age / maxf(duration, 0.01), 0.0, 1.0)
+		var screen_position := _world_to_screen(world_position) + Vector2(0.0, lerpf(-8.0, -32.0, t))
+		var color: Color = floating_text.get("color", Color.WHITE)
+		color.a = lerpf(1.0, 0.0, t)
+		draw_string_outline(font, screen_position, str(floating_text.get("text", "")), HORIZONTAL_ALIGNMENT_CENTER, -1.0, 18, 2, Color("020617"))
+		draw_string(font, screen_position, str(floating_text.get("text", "")), HORIZONTAL_ALIGNMENT_CENTER, -1.0, 18, color)
+
+
+func _spawn_floating_text(world_position: Vector2, text: String, color: Color, duration: float = 1.0) -> void:
+	_floating_texts.append(
+		{
+			"world_position": world_position,
+			"text": text,
+			"color": color,
+			"duration": duration,
+			"age": 0.0
+		}
+	)
+	queue_redraw()
+
+
+func _spawn_player_floating_text(player_index: int, text: String, color: Color, duration: float = 1.0) -> void:
+	if player_index < 0 or player_index >= _players.size():
+		return
+	_spawn_floating_text(_vector2_from_value(_players[player_index].get("board_position", Vector2.ZERO)), text, color, duration)
+
+
+func _spawn_cell_floating_text(cell_id: String, text: String, color: Color, duration: float = 1.0) -> void:
+	_spawn_floating_text(_cell_world_position(cell_id), text, color, duration)
 
 
 func _player_is_stationary(player_index: int) -> bool:
@@ -1664,10 +1838,14 @@ func _update_ui() -> void:
 	var starter_skill: Dictionary = _skill_by_id(starter_skill_id)
 	var starter_skill_name := str(starter_skill.get("name", "Starter Skill"))
 	var starter_skill_cooldown := _player_skill_cooldown(_current_player_index, starter_skill_id)
+	var inventory_names := []
+	for item_entry_variant in current_player.get("inventory", []):
+		var item_entry: Dictionary = item_entry_variant
+		inventory_names.append(str(item_entry.get("name", "Item")))
 	_title_label.text = "%s" % _rules.get("project_name", "Board Prototype")
 	_status_label.text = _match_status_text()
 	_turn_label.text = (
-		"Round %d\n%s (%s)\nHP %d/%d   Gold %d   Renown %d\nMight %d   Guard %d   Arcana %d\nFortune %d   Mobility %d\nGear Atk %+d   Gear Def %+d\nSkill: %s%s" %
+		"Round %d\n%s (%s)\nHP %d/%d   Gold %d   Renown %d\nMight %d   Guard %d   Arcana %d\nFortune %d   Mobility %d\nGear Atk %+d   Gear Def %+d\nSkill: %s%s\nPassive: %s\nBag: %s" %
 		[
 			_round_number,
 			current_player.get("name", "Player"),
@@ -1684,7 +1862,9 @@ func _update_ui() -> void:
 			current_player.get("weapon_bonus", 0),
 			current_player.get("armor_bonus", 0),
 			starter_skill_name,
-			" (CD %d)" % starter_skill_cooldown if starter_skill_cooldown > 0 else ""
+			" (CD %d)" % starter_skill_cooldown if starter_skill_cooldown > 0 else "",
+			current_player.get("passive_text", "None"),
+			", ".join(inventory_names) if not inventory_names.is_empty() else "Empty"
 		]
 	)
 	_timer_label.text = "Turn Timer: %.1fs" % _turn_time_left
@@ -1741,6 +1921,14 @@ func _detail_text_for_hovered_cell() -> String:
 			lines.append("Owner: Neutral")
 		if bool(property_state.get("income_blocked", false)):
 			lines.append("Income: Blocked until next world phase")
+		if bool(property_state.get("trap_armed", false)):
+			lines.append("Trap: Armed against the next raid")
+
+	var shop_state: Dictionary = _shop_states.get(_hovered_cell_id, {})
+	if not shop_state.is_empty():
+		for stock_entry_variant in shop_state.get("stock", []):
+			var stock_entry: Dictionary = stock_entry_variant
+			lines.append("Stock: %s (%d gold)" % [stock_entry.get("name", "Item"), stock_entry.get("cost", 0)])
 
 	var boss_state: Dictionary = _boss_states.get(_hovered_cell_id, {})
 	if not boss_state.is_empty():
@@ -1862,6 +2050,18 @@ func _refresh_available_actions() -> void:
 					_available_actions.append({"id": "buy_weapon_upgrade", "label": "Sharpen Blade", "budget_type": "major"})
 				if int(player.get("gold", 0)) >= 5 and int(player.get("armor_bonus", 0)) < 2:
 					_available_actions.append({"id": "buy_armor_upgrade", "label": "Reinforce Mail", "budget_type": "major"})
+				if _inventory_count(_current_player_index) < _inventory_capacity():
+					for stock_entry_variant in _shop_states.get(cell_id, {}).get("stock", []):
+						var stock_entry: Dictionary = stock_entry_variant
+						if int(player.get("gold", 0)) >= int(stock_entry.get("cost", 0)):
+							_available_actions.append(
+								{
+									"id": "buy_shop_item",
+									"label": "Buy %s" % stock_entry.get("name", "Item"),
+									"item_id": str(stock_entry.get("id", "")),
+									"budget_type": "major"
+								}
+							)
 			"casino":
 				if int(player.get("gold", 0)) >= 3:
 					_available_actions.append({"id": "casino_coin_flip", "label": "Coin Flip", "budget_type": "major"})
@@ -1899,6 +2099,37 @@ func _refresh_available_actions() -> void:
 								"budget_type": "quick"
 							}
 						)
+
+		for item_entry_variant in player.get("inventory", []):
+			var item_entry: Dictionary = item_entry_variant
+			var item_id := str(item_entry.get("id", ""))
+			match item_id:
+				"minor_potion":
+					if int(player.get("hp", 0)) < int(player.get("max_hp", 0)):
+						_available_actions.append({"id": "use_item", "label": "Quick: Minor Potion", "inventory_item_id": item_id, "budget_type": "quick"})
+				"greater_potion":
+					if int(player.get("hp", 0)) < int(player.get("max_hp", 0)):
+						_available_actions.append({"id": "use_item", "label": "Quick: Greater Potion", "inventory_item_id": item_id, "budget_type": "quick"})
+				"raiders_kit":
+					if not _major_action_used and _property_states.has(cell_id):
+						var property_state: Dictionary = _property_states[cell_id]
+						if int(property_state.get("owner_index", -1)) >= 0 and int(property_state.get("owner_index", -1)) != _current_player_index:
+							_available_actions.append({"id": "use_item", "label": "Quick: Raider's Kit", "inventory_item_id": item_id, "budget_type": "quick"})
+				"ward_scroll":
+					if int(player.get("temporary_guard_bonus", 0)) <= 0:
+						_available_actions.append({"id": "use_item", "label": "Quick: Ward Scroll", "inventory_item_id": item_id, "budget_type": "quick"})
+				"fortune_card":
+					if not bool(player.get("fortune_card_ready", false)):
+						_available_actions.append({"id": "use_item", "label": "Quick: Fortune Card", "inventory_item_id": item_id, "budget_type": "quick"})
+				"trap_kit":
+					if not _major_action_used and _property_states.has(cell_id):
+						var own_property_state: Dictionary = _property_states[cell_id]
+						if int(own_property_state.get("owner_index", -1)) == _current_player_index and not bool(own_property_state.get("trap_armed", false)):
+							_available_actions.append({"id": "use_item", "label": "Quick: Trap Kit", "inventory_item_id": item_id, "budget_type": "quick"})
+				"throwing_knife":
+					for knife_action in _throwing_knife_actions_for_player(_current_player_index):
+						knife_action["inventory_item_id"] = item_id
+						_available_actions.append(knife_action)
 
 
 func _current_turn_has_physical_target(cell_id: String) -> bool:
@@ -2007,6 +2238,52 @@ func _shadowstep_destination_options(start_cell_id: String) -> Array:
 	return destinations
 
 
+func _throwing_knife_actions_for_player(player_index: int) -> Array:
+	var actions := []
+	if player_index < 0 or player_index >= _players.size():
+		return actions
+
+	var player_cell_id := str(_players[player_index].get("cell_id", ""))
+	var cells_in_range := [player_cell_id]
+	for neighbor_variant in _board.get("adjacency", {}).get(player_cell_id, []):
+		cells_in_range.append(str(neighbor_variant))
+
+	for candidate_cell_id in cells_in_range:
+		for opponent_index in _other_player_indices_on_cell(candidate_cell_id, player_index):
+			actions.append(
+				{
+					"id": "use_item_throwing_knife_player",
+					"label": "Quick: Knife %s" % _players[opponent_index].get("name", "Player"),
+					"target_player_index": opponent_index,
+					"budget_type": "quick"
+				}
+			)
+		for mob_id in _mob_ids_on_cell(candidate_cell_id):
+			actions.append(
+				{
+					"id": "use_item_throwing_knife_mob",
+					"label": "Quick: Knife %s" % _mob_states[mob_id].get("name", "Mob"),
+					"target_mob_id": mob_id,
+					"budget_type": "quick"
+				}
+			)
+	return actions
+
+
+func _remove_inventory_item(player_index: int, item_id: String) -> Dictionary:
+	if player_index < 0 or player_index >= _players.size() or item_id.is_empty():
+		return {}
+
+	var inventory: Array = _players[player_index].get("inventory", []).duplicate(true)
+	for item_index in range(inventory.size()):
+		var item_entry: Dictionary = inventory[item_index]
+		if str(item_entry.get("id", "")) == item_id:
+			inventory.remove_at(item_index)
+			_players[player_index]["inventory"] = inventory
+			return item_entry
+	return {}
+
+
 func _perform_major_action(action: Dictionary) -> void:
 	var action_id := str(action.get("id", ""))
 	var budget_type := str(action.get("budget_type", "major"))
@@ -2077,6 +2354,7 @@ func _perform_major_action(action: Dictionary) -> void:
 					int(player.get("max_hp", 0)),
 					int(player.get("hp", 0)) + 6
 				)
+				_spawn_player_floating_text(_current_player_index, "+6 HP", Color("86efac"))
 				_append_log("%s prayed at %s and restored 6 HP." % [player_name, _cell_name(cell_id)])
 				consumed = true
 		"train_signature_stat":
@@ -2085,18 +2363,28 @@ func _perform_major_action(action: Dictionary) -> void:
 			if int(player.get("gold", 0)) >= 5 and int(player.get("weapon_bonus", 0)) < 2:
 				_players[_current_player_index]["gold"] = int(player.get("gold", 0)) - 5
 				_players[_current_player_index]["weapon_bonus"] = int(player.get("weapon_bonus", 0)) + 1
+				_spawn_player_floating_text(_current_player_index, "Blade +1", Color("93c5fd"))
 				_append_log("%s bought a weapon upgrade at %s." % [player_name, _cell_name(cell_id)])
 				consumed = true
 		"buy_armor_upgrade":
 			if int(player.get("gold", 0)) >= 5 and int(player.get("armor_bonus", 0)) < 2:
 				_players[_current_player_index]["gold"] = int(player.get("gold", 0)) - 5
 				_players[_current_player_index]["armor_bonus"] = int(player.get("armor_bonus", 0)) + 1
+				_spawn_player_floating_text(_current_player_index, "Armor +1", Color("93c5fd"))
 				_append_log("%s bought an armor upgrade at %s." % [player_name, _cell_name(cell_id)])
 				consumed = true
+		"buy_shop_item":
+			consumed = _buy_shop_item(cell_id, str(action.get("item_id", "")))
 		"casino_coin_flip":
 			consumed = _perform_casino_coin_flip()
 		"challenge_boss":
 			consumed = _perform_boss_challenge()
+		"use_item":
+			consumed = _use_inventory_item(str(action.get("inventory_item_id", "")))
+		"use_item_throwing_knife_player":
+			consumed = _use_throwing_knife_on_player(str(action.get("inventory_item_id", "")), int(action.get("target_player_index", -1)))
+		"use_item_throwing_knife_mob":
+			consumed = _use_throwing_knife_on_mob(str(action.get("inventory_item_id", "")), str(action.get("target_mob_id", "")))
 		_:
 			pass
 
@@ -2129,11 +2417,18 @@ func _perform_property_raid(cell_id: String) -> bool:
 	var owner: Dictionary = _players[owner_index]
 	var player_name := str(player.get("name", "Player"))
 	var raid_bonus: Dictionary = _consume_power_strike_bonus(_current_player_index, true)
-	var raid_total := _rng.randi_range(1, 6) + int(player.get("stats", {}).get("might", 0)) + int(player.get("weapon_bonus", 0)) + int(raid_bonus.get("attack_bonus", 0))
+	var raid_total := _rng.randi_range(1, 6) + int(player.get("stats", {}).get("might", 0)) + int(player.get("weapon_bonus", 0)) + int(raid_bonus.get("attack_bonus", 0)) + int(player.get("temporary_raid_bonus", 0))
 	var defense_total := _rng.randi_range(1, 6) + _property_defense_rating(int(state.get("level", 0)), owner_index)
+	var trap_text := ""
+	if bool(state.get("trap_armed", false)):
+		defense_total += 1
+		state["trap_armed"] = false
+		trap_text = " A hidden trap sprang and stiffened the defense."
 	var margin := raid_total - defense_total
+	_players[_current_player_index]["temporary_raid_bonus"] = 0
 	if margin <= 0:
-		_append_log("%s failed to raid %s." % [player_name, _cell_name(cell_id)])
+		_property_states[cell_id] = state
+		_append_log("%s failed to raid %s.%s" % [player_name, _cell_name(cell_id), trap_text])
 		return true
 
 	var owner_gold := int(owner.get("gold", 0))
@@ -2145,6 +2440,8 @@ func _perform_property_raid(cell_id: String) -> bool:
 		passive_text = " Raider instinct snatched 1 extra gold."
 	_players[owner_index]["gold"] = max(0, int(owner.get("gold", 0)) - stolen_gold)
 	_players[_current_player_index]["gold"] = int(player.get("gold", 0)) + stolen_gold
+	_spawn_player_floating_text(_current_player_index, "+%dg" % stolen_gold, Color("fbbf24"))
+	_spawn_player_floating_text(owner_index, "-%dg" % stolen_gold, Color("fda4af"))
 	_grant_renown(_current_player_index, 1)
 	state["income_blocked"] = true
 
@@ -2155,8 +2452,8 @@ func _perform_property_raid(cell_id: String) -> bool:
 
 	_property_states[cell_id] = state
 	_append_log(
-		"%s raided %s, stole %d gold from %s, and blocked its next income.%s%s" %
-		[player_name, _cell_name(cell_id), stolen_gold, owner.get("name", "Player"), downgrade_text, passive_text]
+		"%s raided %s, stole %d gold from %s, and blocked its next income.%s%s%s" %
+		[player_name, _cell_name(cell_id), stolen_gold, owner.get("name", "Player"), downgrade_text, passive_text, trap_text]
 	)
 	return true
 
@@ -2205,6 +2502,10 @@ func _perform_casino_coin_flip() -> bool:
 	var fortune := int(player.get("stats", {}).get("fortune", 0))
 	var total := roll + fortune
 	var reroll_text := ""
+	if bool(player.get("fortune_card_ready", false)):
+		total += 2
+		_players[_current_player_index]["fortune_card_ready"] = false
+		reroll_text += " Fortune Card adds +2."
 	if _player_has_origin(_current_player_index, "trickster") and not bool(_trickster_reroll_claimed.get(_current_player_index, false)) and total < 7:
 		var reroll := _rng.randi_range(1, 6)
 		var reroll_total := reroll + fortune
@@ -2215,10 +2516,123 @@ func _perform_casino_coin_flip() -> bool:
 
 	if total >= 7:
 		_players[_current_player_index]["gold"] = int(_players[_current_player_index].get("gold", 0)) + 6
+		_spawn_player_floating_text(_current_player_index, "+3g", Color("fbbf24"))
 		_append_log("%s won the coin flip at the casino and came out ahead.%s" % [player_name, reroll_text])
 	else:
+		_spawn_player_floating_text(_current_player_index, "-3g", Color("fda4af"))
 		_append_log("%s lost the coin flip at the casino.%s" % [player_name, reroll_text])
 
+	return true
+
+
+func _buy_shop_item(cell_id: String, item_id: String) -> bool:
+	if item_id.is_empty() or not _shop_states.has(cell_id):
+		return false
+	if _inventory_count(_current_player_index) >= _inventory_capacity():
+		return false
+
+	var stock: Array = _shop_states[cell_id].get("stock", []).duplicate(true)
+	for stock_index in range(stock.size()):
+		var stock_entry: Dictionary = stock[stock_index]
+		if str(stock_entry.get("id", "")) != item_id:
+			continue
+		var cost := int(stock_entry.get("cost", 0))
+		if int(_players[_current_player_index].get("gold", 0)) < cost:
+			return false
+
+		_players[_current_player_index]["gold"] = int(_players[_current_player_index].get("gold", 0)) - cost
+		var inventory: Array = _players[_current_player_index].get("inventory", []).duplicate(true)
+		inventory.append(stock_entry.duplicate(true))
+		_players[_current_player_index]["inventory"] = inventory
+		stock.remove_at(stock_index)
+		_shop_states[cell_id]["stock"] = stock
+		_spawn_player_floating_text(_current_player_index, stock_entry.get("name", "Item"), Color("7dd3fc"))
+		_append_log("%s bought %s at %s." % [_players[_current_player_index].get("name", "Player"), stock_entry.get("name", "Item"), _cell_name(cell_id)])
+		return true
+	return false
+
+
+func _use_inventory_item(item_id: String) -> bool:
+	var item_entry := _remove_inventory_item(_current_player_index, item_id)
+	if item_entry.is_empty():
+		return false
+
+	var player_name := str(_players[_current_player_index].get("name", "Player"))
+	match item_id:
+		"minor_potion":
+			_players[_current_player_index]["hp"] = mini(int(_players[_current_player_index].get("max_hp", 0)), int(_players[_current_player_index].get("hp", 0)) + 4)
+			_spawn_player_floating_text(_current_player_index, "+4 HP", Color("86efac"))
+			_append_log("%s drinks a Minor Potion and restores 4 HP." % player_name)
+			return true
+		"greater_potion":
+			_players[_current_player_index]["hp"] = mini(int(_players[_current_player_index].get("max_hp", 0)), int(_players[_current_player_index].get("hp", 0)) + 7)
+			_spawn_player_floating_text(_current_player_index, "+7 HP", Color("86efac"))
+			_append_log("%s drinks a Greater Potion and restores 7 HP." % player_name)
+			return true
+		"raiders_kit":
+			_players[_current_player_index]["temporary_raid_bonus"] = 2
+			_spawn_player_floating_text(_current_player_index, "Raid +2", Color("fbbf24"))
+			_append_log("%s opens a Raider's Kit and gains +2 on the next raid this turn." % player_name)
+			return true
+		"ward_scroll":
+			_players[_current_player_index]["temporary_guard_bonus"] = max(2, int(_players[_current_player_index].get("temporary_guard_bonus", 0)))
+			_spawn_player_floating_text(_current_player_index, "Guard +2", Color("93c5fd"))
+			_append_log("%s unfurls a Ward Scroll and gains +2 Guard until the next turn." % player_name)
+			return true
+		"fortune_card":
+			_players[_current_player_index]["fortune_card_ready"] = true
+			_spawn_player_floating_text(_current_player_index, "Fortune +2", Color("c4b5fd"))
+			_append_log("%s banks a Fortune Card for the next casino or event roll." % player_name)
+			return true
+		"trap_kit":
+			var cell_id := str(_players[_current_player_index].get("cell_id", ""))
+			if _property_states.has(cell_id) and int(_property_states[cell_id].get("owner_index", -1)) == _current_player_index:
+				_property_states[cell_id]["trap_armed"] = true
+				_spawn_cell_floating_text(cell_id, "Trap Armed", Color("fbbf24"))
+				_append_log("%s arms a trap at %s." % [player_name, _cell_name(cell_id)])
+				return true
+		_:
+			pass
+
+	var inventory: Array = _players[_current_player_index].get("inventory", []).duplicate(true)
+	inventory.append(item_entry)
+	_players[_current_player_index]["inventory"] = inventory
+	return false
+
+
+func _use_throwing_knife_on_player(item_id: String, target_player_index: int) -> bool:
+	if target_player_index < 0 or target_player_index >= _players.size():
+		return false
+	if _graph_distance_between_players(_current_player_index, target_player_index) > 1:
+		return false
+	var removed := _remove_inventory_item(_current_player_index, item_id)
+	if removed.is_empty():
+		return false
+
+	_apply_damage_to_player(target_player_index, 2)
+	_append_log("%s throws a knife into %s for 2 damage." % [_players[_current_player_index].get("name", "Player"), _players[target_player_index].get("name", "Player")])
+	if int(_players[target_player_index].get("hp", 0)) <= 0:
+		_handle_player_defeat(_current_player_index, target_player_index)
+	return true
+
+
+func _use_throwing_knife_on_mob(item_id: String, target_mob_id: String) -> bool:
+	if not _mob_states.has(target_mob_id):
+		return false
+	if _graph_distance_from_current_player(str(_mob_states[target_mob_id].get("cell_id", ""))) > 1:
+		return false
+	var removed := _remove_inventory_item(_current_player_index, item_id)
+	if removed.is_empty():
+		return false
+
+	_mob_states[target_mob_id]["hp"] = int(_mob_states[target_mob_id].get("hp", 0)) - 2
+	_spawn_cell_floating_text(str(_mob_states[target_mob_id].get("cell_id", "")), "-2", Color("fca5a5"))
+	_append_log("%s throws a knife into %s for 2 damage." % [_players[_current_player_index].get("name", "Player"), _mob_states[target_mob_id].get("name", "Mob")])
+	if int(_mob_states[target_mob_id].get("hp", 0)) <= 0:
+		_players[_current_player_index]["gold"] = int(_players[_current_player_index].get("gold", 0)) + int(_mob_states[target_mob_id].get("reward_gold", 2))
+		_grant_renown(_current_player_index, int(_mob_states[target_mob_id].get("reward_renown", 0)))
+		_append_log("%s falls from the hit." % _mob_states[target_mob_id].get("name", "Mob"))
+		_mob_states.erase(target_mob_id)
 	return true
 
 
@@ -2267,6 +2681,7 @@ func _perform_arc_bolt_on_mob(mob_id: String) -> bool:
 	var defense_total := _rng.randi_range(1, 6) + _monster_defense_value(mob_state)
 	var damage := maxi(1, attack_total - defense_total + 2)
 	mob_state["hp"] = int(mob_state.get("hp", 0)) - damage
+	_spawn_cell_floating_text(str(mob_state.get("cell_id", "")), "-%d" % damage, Color("fca5a5"))
 	_set_player_skill_cooldown(_current_player_index, str(attacker.get("starter_skill_id", "")), int(_skill_by_id(str(attacker.get("starter_skill_id", ""))).get("cooldown", 2)))
 	_append_log("%s zaps %s for %d damage with Arc Bolt." % [attacker.get("name", "Player"), mob_state.get("name", "Mob"), damage])
 	if int(mob_state.get("hp", 0)) <= 0:
@@ -2291,6 +2706,7 @@ func _perform_arc_bolt_on_boss(cell_id: String) -> bool:
 	var defense_total := _rng.randi_range(1, 6) + _monster_defense_value(boss_state)
 	var damage := maxi(1, attack_total - defense_total + 2)
 	boss_state["hp"] = int(boss_state.get("hp", 0)) - damage
+	_spawn_cell_floating_text(cell_id, "-%d" % damage, Color("fca5a5"))
 	_set_player_skill_cooldown(_current_player_index, str(attacker.get("starter_skill_id", "")), int(_skill_by_id(str(attacker.get("starter_skill_id", ""))).get("cooldown", 2)))
 	_append_log("%s lashes %s with Arc Bolt for %d damage." % [attacker.get("name", "Player"), boss_state.get("name", "Boss"), damage])
 	if int(boss_state.get("hp", 0)) <= 0:
@@ -2384,6 +2800,7 @@ func _perform_boss_challenge() -> bool:
 	for exchange_index in range(exchange_count):
 		var player_damage := _roll_player_vs_monster_damage(_current_player_index, boss_state)
 		boss_state["hp"] = int(boss_state.get("hp", 0)) - player_damage
+		_spawn_cell_floating_text(cell_id, "-%d" % player_damage, Color("fca5a5"))
 		_append_log("%s hits %s for %d damage." % [player_name, boss_name, player_damage])
 		if int(boss_state.get("hp", 0)) <= 0:
 			_players[_current_player_index]["gold"] = int(_players[_current_player_index].get("gold", 0)) + int(boss_state.get("reward_gold", 6))
@@ -2491,6 +2908,7 @@ func _grant_renown(player_index: int, amount: int) -> void:
 		return
 
 	_players[player_index]["renown"] = int(_players[player_index].get("renown", 0)) + amount
+	_spawn_player_floating_text(player_index, "+%d Renown" % amount, Color("fde68a"))
 	_check_final_round_trigger(player_index)
 
 
@@ -2617,6 +3035,7 @@ func _resolve_mob_combat(player_index: int, mob_id: String) -> void:
 	for exchange_index in range(exchange_count):
 		var player_damage := _roll_player_vs_monster_damage(player_index, mob_state)
 		mob_state["hp"] = int(mob_state.get("hp", 0)) - player_damage
+		_spawn_cell_floating_text(str(mob_state.get("cell_id", "")), "-%d" % player_damage, Color("fca5a5"))
 		_append_log("%s hits %s for %d damage." % [player.get("name", "Player"), mob_state.get("name", "Mob"), player_damage])
 		if int(mob_state.get("hp", 0)) <= 0:
 			_players[player_index]["gold"] = int(_players[player_index].get("gold", 0)) + int(mob_state.get("reward_gold", 2))
@@ -2642,6 +3061,7 @@ func _apply_damage_to_player(player_index: int, damage: int) -> void:
 		return
 
 	_players[player_index]["hp"] = max(0, int(_players[player_index].get("hp", 0)) - damage)
+	_spawn_player_floating_text(player_index, "-%d" % damage, Color("fca5a5"))
 
 
 func _handle_player_defeat(winner_index: int, loser_index: int) -> void:
