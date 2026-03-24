@@ -1,0 +1,55 @@
+[
+  {
+    "id": "raider",
+    "name": "Raider",
+    "stat_bonuses": {
+      "might": 2,
+      "guard": 0,
+      "arcana": 0,
+      "fortune": 0,
+      "mobility": 1
+    },
+    "passive": "First successful raid each round grants +1 extra gold.",
+    "starter_skill_id": "power_strike"
+  },
+  {
+    "id": "warden",
+    "name": "Warden",
+    "stat_bonuses": {
+      "might": 1,
+      "guard": 2,
+      "arcana": 0,
+      "fortune": 0,
+      "mobility": 0
+    },
+    "passive": "Owned properties gain +1 defense while you are alive.",
+    "starter_skill_id": "hold_fast"
+  },
+  {
+    "id": "arcanist",
+    "name": "Arcanist",
+    "stat_bonuses": {
+      "might": 0,
+      "guard": 0,
+      "arcana": 2,
+      "fortune": 1,
+      "mobility": 0
+    },
+    "passive": "Your first spell each round gains +1 power.",
+    "starter_skill_id": "arc_bolt"
+  },
+  {
+    "id": "trickster",
+    "name": "Trickster",
+    "stat_bonuses": {
+      "might": 0,
+      "guard": 0,
+      "arcana": 0,
+      "fortune": 2,
+      "mobility": 1
+    },
+    "passive": "Once per round, reroll one event, gamble, or loot roll.",
+    "starter_skill_id": "shadowstep"
+  }
+]
+

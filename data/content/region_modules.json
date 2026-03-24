@@ -1,0 +1,183 @@
+{
+  "hub": {
+    "id": "central_hub",
+    "entry_cell": "sanctuary",
+    "region_anchor_cells": ["gate_north", "gate_east", "gate_south", "gate_west", "gate_peak"],
+    "cells": [
+      { "id": "sanctuary", "type": "shrine", "name": "Sanctuary", "position": [0, 0] },
+      { "id": "market", "type": "shop", "name": "Grand Market", "position": [70, -110] },
+      { "id": "event_square", "type": "event", "name": "Event Square", "position": [150, -140] },
+      { "id": "casino_hall", "type": "casino", "name": "Casino Hall", "position": [150, 120] },
+      { "id": "promenade", "type": "neutral", "name": "Promenade", "position": [-125, 145] },
+      { "id": "gate_north", "type": "neutral", "name": "North Gate", "position": [0, -200] },
+      { "id": "gate_east", "type": "neutral", "name": "East Gate", "position": [220, -20] },
+      { "id": "gate_south", "type": "neutral", "name": "South Gate", "position": [20, 210] },
+      { "id": "gate_west", "type": "neutral", "name": "West Gate", "position": [-220, 35] },
+      { "id": "gate_peak", "type": "portal", "name": "Peak Gate", "position": [-160, -120] }
+    ],
+    "connections": [
+      ["sanctuary", "market"],
+      ["market", "gate_north"],
+      ["gate_north", "event_square"],
+      ["event_square", "gate_east"],
+      ["gate_east", "casino_hall"],
+      ["casino_hall", "gate_south"],
+      ["gate_south", "promenade"],
+      ["promenade", "gate_west"],
+      ["gate_west", "gate_peak"],
+      ["gate_peak", "sanctuary"]
+    ]
+  },
+  "regions": [
+    {
+      "id": "frontier_trails",
+      "entry_cell": "entry",
+      "cross_link_cells": ["ridge_pass", "wolf_den"],
+      "cells": [
+        { "id": "entry", "type": "neutral", "name": "Frontier Gate", "position": [0, 0] },
+        { "id": "fork", "type": "neutral", "name": "Dust Fork", "position": [85, 0] },
+        { "id": "hunting_lodge", "type": "property", "name": "Hunting Lodge", "position": [180, -78] },
+        { "id": "bandit_crossing", "type": "event", "name": "Bandit Crossing", "position": [180, 78] },
+        { "id": "wolf_den", "type": "mob_den", "name": "Wolf Den", "position": [280, -88] },
+        { "id": "gold_creek", "type": "property", "name": "Gold Creek", "position": [375, 0] },
+        { "id": "ridge_pass", "type": "portal", "name": "Ridge Pass", "position": [280, 88] },
+        { "id": "skull_cave", "type": "boss_entrance", "name": "Skull Cave", "position": [465, 88] }
+      ],
+      "connections": [
+        ["entry", "fork"],
+        ["fork", "hunting_lodge"],
+        ["fork", "bandit_crossing"],
+        ["hunting_lodge", "wolf_den"],
+        ["wolf_den", "gold_creek"],
+        ["bandit_crossing", "ridge_pass"],
+        ["ridge_pass", "gold_creek"],
+        ["ridge_pass", "skull_cave"]
+      ]
+    },
+    {
+      "id": "arcane_ruins",
+      "entry_cell": "entry",
+      "cross_link_cells": ["moon_gate", "wisp_nest"],
+      "cells": [
+        { "id": "entry", "type": "neutral", "name": "Shattered Arch", "position": [0, 0] },
+        { "id": "echo_walk", "type": "neutral", "name": "Echo Walk", "position": [85, 0] },
+        { "id": "mana_well", "type": "event", "name": "Mana Well", "position": [180, -78] },
+        { "id": "crystal_vault", "type": "property", "name": "Crystal Vault", "position": [180, 78] },
+        { "id": "wisp_nest", "type": "mob_den", "name": "Wisp Nest", "position": [280, -88] },
+        { "id": "rune_library", "type": "property", "name": "Rune Library", "position": [280, 88] },
+        { "id": "moon_gate", "type": "portal", "name": "Moon Gate", "position": [375, 0] },
+        { "id": "glyph_crypt", "type": "boss_entrance", "name": "Glyph Crypt", "position": [470, 0] }
+      ],
+      "connections": [
+        ["entry", "echo_walk"],
+        ["echo_walk", "mana_well"],
+        ["echo_walk", "crystal_vault"],
+        ["mana_well", "wisp_nest"],
+        ["crystal_vault", "rune_library"],
+        ["wisp_nest", "moon_gate"],
+        ["rune_library", "moon_gate"],
+        ["moon_gate", "glyph_crypt"]
+      ]
+    },
+    {
+      "id": "merchant_quarter",
+      "entry_cell": "entry",
+      "cross_link_cells": ["dock_link", "clock_bridge"],
+      "cells": [
+        { "id": "entry", "type": "neutral", "name": "Canal Entry", "position": [0, 0] },
+        { "id": "bazaar", "type": "shop", "name": "Bazaar", "position": [85, 0] },
+        { "id": "guild_house", "type": "property", "name": "Guild House", "position": [180, -78] },
+        { "id": "pickpocket_lane", "type": "event", "name": "Pickpocket Lane", "position": [180, 78] },
+        { "id": "smugglers_watch", "type": "mob_den", "name": "Smugglers Watch", "position": [280, -88] },
+        { "id": "customs_lock", "type": "property", "name": "Customs Lock", "position": [280, 88] },
+        { "id": "dock_link", "type": "portal", "name": "Dock Link", "position": [370, -40] },
+        { "id": "clock_bridge", "type": "neutral", "name": "Clock Bridge", "position": [370, 40] }
+      ],
+      "connections": [
+        ["entry", "bazaar"],
+        ["bazaar", "guild_house"],
+        ["bazaar", "pickpocket_lane"],
+        ["guild_house", "smugglers_watch"],
+        ["pickpocket_lane", "customs_lock"],
+        ["smugglers_watch", "dock_link"],
+        ["customs_lock", "clock_bridge"],
+        ["dock_link", "clock_bridge"]
+      ]
+    },
+    {
+      "id": "fortress_march",
+      "entry_cell": "entry",
+      "cross_link_cells": ["watchtower", "barricade_road"],
+      "cells": [
+        { "id": "entry", "type": "neutral", "name": "Outer March", "position": [0, 0] },
+        { "id": "watchtower", "type": "portal", "name": "Watchtower", "position": [90, 0] },
+        { "id": "supply_depot", "type": "property", "name": "Supply Depot", "position": [185, -78] },
+        { "id": "drill_square", "type": "event", "name": "Drill Square", "position": [185, 78] },
+        { "id": "barracks", "type": "mob_den", "name": "Barracks", "position": [290, -88] },
+        { "id": "armory_keep", "type": "property", "name": "Armory Keep", "position": [290, 88] },
+        { "id": "barricade_road", "type": "neutral", "name": "Barricade Road", "position": [390, 0] },
+        { "id": "war_shrine", "type": "shrine", "name": "War Shrine", "position": [485, 0] }
+      ],
+      "connections": [
+        ["entry", "watchtower"],
+        ["watchtower", "supply_depot"],
+        ["watchtower", "drill_square"],
+        ["supply_depot", "barracks"],
+        ["drill_square", "armory_keep"],
+        ["barracks", "barricade_road"],
+        ["armory_keep", "barricade_road"],
+        ["barricade_road", "war_shrine"]
+      ]
+    },
+    {
+      "id": "storm_basin",
+      "entry_cell": "entry",
+      "cross_link_cells": ["broken_lift", "flood_gate"],
+      "cells": [
+        { "id": "entry", "type": "neutral", "name": "Storm Path", "position": [0, 0] },
+        { "id": "flood_gate", "type": "portal", "name": "Flood Gate", "position": [90, 0] },
+        { "id": "fishers_wharf", "type": "property", "name": "Fisher's Wharf", "position": [185, -78] },
+        { "id": "lightning_tree", "type": "event", "name": "Lightning Tree", "position": [185, 78] },
+        { "id": "tempest_roost", "type": "mob_den", "name": "Tempest Roost", "position": [290, -88] },
+        { "id": "power_mill", "type": "property", "name": "Power Mill", "position": [290, 88] },
+        { "id": "broken_lift", "type": "neutral", "name": "Broken Lift", "position": [390, 0] },
+        { "id": "rain_market", "type": "shop", "name": "Rain Market", "position": [485, 0] }
+      ],
+      "connections": [
+        ["entry", "flood_gate"],
+        ["flood_gate", "fishers_wharf"],
+        ["flood_gate", "lightning_tree"],
+        ["fishers_wharf", "tempest_roost"],
+        ["lightning_tree", "power_mill"],
+        ["tempest_roost", "broken_lift"],
+        ["power_mill", "broken_lift"],
+        ["broken_lift", "rain_market"]
+      ]
+    },
+    {
+      "id": "grave_barrens",
+      "entry_cell": "entry",
+      "cross_link_cells": ["soul_ford", "bone_pit"],
+      "cells": [
+        { "id": "entry", "type": "neutral", "name": "Ash Entry", "position": [0, 0] },
+        { "id": "bone_pit", "type": "mob_den", "name": "Bone Pit", "position": [90, -78] },
+        { "id": "grave_market", "type": "event", "name": "Grave Market", "position": [90, 78] },
+        { "id": "crypt_hold", "type": "property", "name": "Crypt Hold", "position": [200, -88] },
+        { "id": "spirit_fence", "type": "property", "name": "Spirit Fence", "position": [200, 88] },
+        { "id": "soul_ford", "type": "portal", "name": "Soul Ford", "position": [325, 0] },
+        { "id": "mourning_field", "type": "neutral", "name": "Mourning Field", "position": [430, 0] },
+        { "id": "tomb_gate", "type": "boss_entrance", "name": "Tomb Gate", "position": [525, 0] }
+      ],
+      "connections": [
+        ["entry", "bone_pit"],
+        ["entry", "grave_market"],
+        ["bone_pit", "crypt_hold"],
+        ["grave_market", "spirit_fence"],
+        ["crypt_hold", "soul_ford"],
+        ["spirit_fence", "soul_ford"],
+        ["soul_ford", "mourning_field"],
+        ["mourning_field", "tomb_gate"]
+      ]
+    }
+  ]
+}

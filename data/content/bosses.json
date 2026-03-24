@@ -1,0 +1,20 @@
+[
+  {
+    "id": "bone_tyrant",
+    "name": "Bone Tyrant",
+    "hp": 14,
+    "exchange_count": 3,
+    "reward_gold": 7,
+    "reward_renown": 4,
+    "trait": "Gains +1 defense on its counterexchange."
+  },
+  {
+    "id": "storm_idol",
+    "name": "Storm Idol",
+    "hp": 12,
+    "exchange_count": 3,
+    "reward_gold": 6,
+    "reward_renown": 4,
+    "trait": "Its first exchange deals 1 magic splash damage even on a defended hit."
+  }
+]

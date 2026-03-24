@@ -1,0 +1,57 @@
+[
+  {
+    "id": "neutral",
+    "name": "Neutral Path",
+    "major_actions": [],
+    "notes": "Basic traversal cell with no default interaction."
+  },
+  {
+    "id": "shrine",
+    "name": "Shrine",
+    "major_actions": ["heal", "remove_curse", "train_stat"],
+    "notes": "Respawn point and stat progression location."
+  },
+  {
+    "id": "property",
+    "name": "Property",
+    "major_actions": ["claim_property", "upgrade_property", "raid_property"],
+    "notes": "Economy and territory cell."
+  },
+  {
+    "id": "shop",
+    "name": "Shop",
+    "major_actions": ["buy_item", "buy_equipment", "sell_item", "learn_skill"],
+    "notes": "Shared rotating stock."
+  },
+  {
+    "id": "event",
+    "name": "Event",
+    "major_actions": ["resolve_event_choice"],
+    "notes": "Short two-option events with risk or reward."
+  },
+  {
+    "id": "casino",
+    "name": "Casino",
+    "major_actions": ["coin_flip", "high_roll", "lucky_draw"],
+    "notes": "Optional risk cell that should never dominate the economy."
+  },
+  {
+    "id": "mob_den",
+    "name": "Mob Den",
+    "major_actions": [],
+    "notes": "Spawns pressure mobs during world phase."
+  },
+  {
+    "id": "boss_entrance",
+    "name": "Boss Entrance",
+    "major_actions": ["enter_boss_dungeon"],
+    "notes": "Opt-in high-risk challenge."
+  },
+  {
+    "id": "portal",
+    "name": "Portal",
+    "major_actions": ["teleport_via_portal"],
+    "notes": "Movement shortcut if the player stops here."
+  }
+]
+

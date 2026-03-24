@@ -1,0 +1,59 @@
+[
+  {
+    "id": "minor_potion",
+    "name": "Minor Potion",
+    "cost": 3,
+    "action_type": "quick",
+    "effect": "Restore 4 HP."
+  },
+  {
+    "id": "greater_potion",
+    "name": "Greater Potion",
+    "cost": 5,
+    "action_type": "quick",
+    "effect": "Restore 7 HP."
+  },
+  {
+    "id": "smoke_bomb",
+    "name": "Smoke Bomb",
+    "cost": 4,
+    "action_type": "quick",
+    "effect": "Automatically succeed at a retreat check."
+  },
+  {
+    "id": "raiders_kit",
+    "name": "Raider's Kit",
+    "cost": 4,
+    "action_type": "quick",
+    "effect": "Gain +2 on a raid this turn."
+  },
+  {
+    "id": "throwing_knife",
+    "name": "Throwing Knife",
+    "cost": 3,
+    "action_type": "quick",
+    "effect": "Deal 2 damage to a target on your cell or an adjacent cell."
+  },
+  {
+    "id": "ward_scroll",
+    "name": "Ward Scroll",
+    "cost": 4,
+    "action_type": "quick",
+    "effect": "Gain Guarded until your next turn."
+  },
+  {
+    "id": "fortune_card",
+    "name": "Fortune Card",
+    "cost": 4,
+    "action_type": "quick",
+    "effect": "Reroll any one d6 you just rolled."
+  },
+  {
+    "id": "trap_kit",
+    "name": "Trap Kit",
+    "cost": 5,
+    "action_type": "major",
+    "effect": "Add a temporary trap to an owned property; first enemy raiding before next world phase suffers -1 on the raid."
+  }
+]
+

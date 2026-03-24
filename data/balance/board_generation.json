@@ -1,0 +1,60 @@
+{
+  "templates": {
+    "2-3": {
+      "outer_regions": 3,
+      "cross_links": 1,
+      "target_cells": [38, 42],
+      "properties": [6, 7],
+      "shops": [2, 2],
+      "events": [4, 5],
+      "casino": 1,
+      "mob_dens": [2, 2],
+      "boss_entrances": [1, 1],
+      "secondary_shrines": 1
+    },
+    "4-6": {
+      "outer_regions": 4,
+      "cross_links": 2,
+      "target_cells": [48, 52],
+      "properties": [9, 10],
+      "shops": [3, 3],
+      "events": [6, 7],
+      "casino": 1,
+      "mob_dens": [3, 3],
+      "boss_entrances": [2, 2],
+      "secondary_shrines": 1
+    },
+    "7-8": {
+      "outer_regions": 5,
+      "cross_links": 3,
+      "target_cells": [58, 62],
+      "properties": [11, 13],
+      "shops": [3, 4],
+      "events": [8, 9],
+      "casino": 1,
+      "mob_dens": [4, 4],
+      "boss_entrances": [2, 3],
+      "secondary_shrines": 2
+    }
+  },
+  "validation_rules": {
+    "max_connections_per_cell": 4,
+    "max_boss_distance_from_hub_minimum": 3,
+    "shop_distance_from_hub_maximum": 4,
+    "shrine_distance_from_any_cell_maximum": 5,
+    "min_properties_per_outer_region": 2,
+    "min_events_per_outer_region": 1,
+    "exact_casino_count": 1,
+    "boss_entrance_min": 1,
+    "boss_entrance_max": 3
+  },
+  "assembly_order": [
+    "pick_template",
+    "place_central_hub",
+    "attach_outer_regions",
+    "add_cross_links",
+    "validate_graph",
+    "retry_if_invalid"
+  ]
+}
+

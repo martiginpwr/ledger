@@ -1,0 +1,40 @@
+[
+  {
+    "id": "bandit",
+    "name": "Bandit",
+    "hp": 6,
+    "attack_type": "physical",
+    "reward_gold": 2,
+    "exchange_count": 2,
+    "trait": "Steals 1 extra gold if it wins."
+  },
+  {
+    "id": "wisp",
+    "name": "Wisp",
+    "hp": 5,
+    "attack_type": "magic",
+    "reward_gold": 2,
+    "exchange_count": 2,
+    "trait": "25% chance to apply Silenced."
+  },
+  {
+    "id": "brute",
+    "name": "Brute",
+    "hp": 8,
+    "attack_type": "physical",
+    "reward_gold": 3,
+    "exchange_count": 2,
+    "trait": "Blocks a high-value path."
+  },
+  {
+    "id": "elite_hunter",
+    "name": "Elite Hunter",
+    "hp": 10,
+    "attack_type": "physical",
+    "reward_gold": 4,
+    "reward_renown": 1,
+    "exchange_count": 3,
+    "trait": "Acts as an elite roaming objective."
+  }
+]
+

@@ -1,0 +1,118 @@
+{
+  "project_name": "RPG Board Game Prototype",
+  "supported_players": {
+    "min": 2,
+    "max": 8
+  },
+  "turn_timers_seconds": {
+    "2-3": 55,
+    "4-6": 50,
+    "7-8": 40
+  },
+  "max_rounds": 10,
+  "renown_thresholds": {
+    "2-3": 12,
+    "4-6": 14,
+    "7-8": 16
+  },
+  "movement_die_faces": [1, 2, 2, 3, 3, 4],
+  "action_budget": {
+    "major_actions_per_turn": 1,
+    "quick_actions_per_turn": 1
+  },
+  "starting_state": {
+    "gold": 10,
+    "base_stats": {
+      "might": 1,
+      "guard": 1,
+      "arcana": 1,
+      "fortune": 1,
+      "mobility": 1
+    },
+    "equipment_slots": ["weapon", "armor", "trinket"],
+    "consumable_slots": 3,
+    "active_skill_slots": 2,
+    "stance": "balanced"
+  },
+  "stat_caps": {
+    "soft_target": 4,
+    "hard_cap": 5
+  },
+  "training_costs": {
+    "1_to_2": 5,
+    "2_to_3": 7,
+    "3_to_4": 9,
+    "4_to_5": 11
+  },
+  "property_levels": {
+    "outpost": {
+      "claim_cost": 6,
+      "income": 2,
+      "defense_rating": 6
+    },
+    "estate": {
+      "upgrade_cost": 6,
+      "income": 3,
+      "defense_rating": 8
+    },
+    "stronghold": {
+      "upgrade_cost": 8,
+      "income": 4,
+      "defense_rating": 11,
+      "renown_on_upgrade": 1
+    }
+  },
+  "rewards": {
+    "normal_mob_gold": 2,
+    "elite_mob_gold": 4,
+    "elite_mob_renown": 1,
+    "player_defeat_gold": 3,
+    "player_defeat_renown": 2,
+    "boss_gold_min": 6,
+    "boss_gold_max": 8,
+    "boss_renown": 4,
+    "raid_renown_first_success_each_round": 1
+  },
+  "combat": {
+    "standard_exchanges": 2,
+    "boss_exchanges": 3,
+    "base_damage_bonus": 2,
+    "critical_bonus_damage": 2,
+    "retreat_target_number": 6
+  },
+  "stances": {
+    "balanced": {
+      "attack_modifier": 0,
+      "defense_modifier": 0,
+      "fortune_modifier": 0,
+      "retreat_modifier": 0
+    },
+    "aggressive": {
+      "attack_modifier": 1,
+      "defense_modifier": -1,
+      "fortune_modifier": 0,
+      "retreat_modifier": 0
+    },
+    "guarded": {
+      "attack_modifier": -1,
+      "defense_modifier": 1,
+      "fortune_modifier": 0,
+      "retreat_modifier": 0
+    },
+    "cunning": {
+      "attack_modifier": 0,
+      "defense_modifier": 0,
+      "fortune_modifier": 1,
+      "retreat_modifier": 1
+    }
+  },
+  "world_phase_order": [
+    "pay_property_income",
+    "clear_property_raid_lock",
+    "update_marked_leaders",
+    "spawn_or_move_mobs",
+    "tick_region_events",
+    "refresh_shop_stock_if_due"
+  ]
+}
+

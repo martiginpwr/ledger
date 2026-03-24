@@ -1,0 +1,93 @@
+[
+  {
+    "id": "power_strike",
+    "name": "Power Strike",
+    "action_type": "major",
+    "cooldown": 2,
+    "range": 0,
+    "tags": ["starter", "physical"],
+    "description": "Next physical attack this turn gains +2 attack value and +1 damage."
+  },
+  {
+    "id": "hold_fast",
+    "name": "Hold Fast",
+    "action_type": "quick",
+    "cooldown": 3,
+    "range": 0,
+    "tags": ["starter", "defense"],
+    "description": "Gain +2 defense value until the start of your next turn."
+  },
+  {
+    "id": "arc_bolt",
+    "name": "Arc Bolt",
+    "action_type": "major",
+    "cooldown": 2,
+    "range": 3,
+    "tags": ["starter", "magic", "ranged"],
+    "description": "Deal one magic exchange to a target within 3 cells."
+  },
+  {
+    "id": "shadowstep",
+    "name": "Shadowstep",
+    "action_type": "quick",
+    "cooldown": 3,
+    "range": 2,
+    "tags": ["starter", "movement"],
+    "description": "Move up to 2 cells after finishing your Major Action."
+  },
+  {
+    "id": "fire_sigil",
+    "name": "Fire Sigil",
+    "action_type": "major",
+    "cooldown": 3,
+    "range": 1,
+    "tags": ["magic", "damage", "burn"],
+    "description": "Target player on your cell or an adjacent cell takes a magic attack and suffers Burn."
+  },
+  {
+    "id": "ward_burst",
+    "name": "Ward Burst",
+    "action_type": "quick",
+    "cooldown": 3,
+    "range": 0,
+    "tags": ["defense", "cleanse"],
+    "description": "Remove one debuff and gain +1 defense this turn."
+  },
+  {
+    "id": "hook_chain",
+    "name": "Hook Chain",
+    "action_type": "major",
+    "cooldown": 3,
+    "range": 1,
+    "tags": ["control", "physical"],
+    "description": "Pull a target from an adjacent cell onto your cell, then deal a weak physical exchange."
+  },
+  {
+    "id": "lucky_break",
+    "name": "Lucky Break",
+    "action_type": "quick",
+    "cooldown": 4,
+    "range": 0,
+    "tags": ["fortune", "reroll"],
+    "description": "Reroll one attack die, defense die, or event roll."
+  },
+  {
+    "id": "sabotage",
+    "name": "Sabotage",
+    "action_type": "major",
+    "cooldown": 3,
+    "range": 0,
+    "tags": ["raid", "property"],
+    "description": "Gain +3 on your next raid this turn."
+  },
+  {
+    "id": "blink_rune",
+    "name": "Blink Rune",
+    "action_type": "quick",
+    "cooldown": 4,
+    "range": 2,
+    "tags": ["movement", "teleport"],
+    "description": "Teleport to a visible cell within 2 steps."
+  }
+]
+
