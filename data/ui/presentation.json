@@ -1,0 +1,37 @@
+{
+  "board_texture": "res://assets/kenney/cartography/parchmentBasic.png",
+  "board_base_color": "f1e3bb",
+  "board_overlay_color": "7c5a2f22",
+  "board_border_color": "d9b56d",
+  "board_grid_color": "8b6d4130",
+  "connection_shadow_color": "00000024",
+  "connection_color": "7d6a56",
+  "cell_icon_size": 18,
+  "cell_icons": {
+    "neutral": "res://assets/kenney/board_game_icons/book_open.png",
+    "shrine": "res://assets/kenney/board_game_icons/campfire.png",
+    "shop": "res://assets/kenney/board_game_icons/pouch.png",
+    "event": "res://assets/kenney/board_game_icons/dice_question.png",
+    "casino": "res://assets/kenney/board_game_icons/dice_6.png",
+    "property": "res://assets/kenney/board_game_icons/structure_house.png",
+    "mob_den": "res://assets/kenney/board_game_icons/skull.png",
+    "boss_entrance": "res://assets/kenney/board_game_icons/crown_a.png",
+    "portal": "res://assets/kenney/board_game_icons/arrow_cross.png"
+  },
+  "action_icons": {
+    "roll": "res://assets/kenney/board_game_icons/dice_6.png",
+    "end_turn": "res://assets/kenney/board_game_icons/arrow_right_curve.png",
+    "menu": "res://assets/kenney/board_game_icons/book_open.png",
+    "attack": "res://assets/kenney/board_game_icons/sword.png",
+    "raid": "res://assets/kenney/board_game_icons/skull.png",
+    "property": "res://assets/kenney/board_game_icons/structure_house.png",
+    "shrine": "res://assets/kenney/board_game_icons/campfire.png",
+    "shop": "res://assets/kenney/board_game_icons/pouch.png",
+    "casino": "res://assets/kenney/board_game_icons/dice_6.png",
+    "boss": "res://assets/kenney/board_game_icons/crown_a.png",
+    "magic": "res://assets/kenney/board_game_icons/card_target.png",
+    "defense": "res://assets/kenney/board_game_icons/shield.png",
+    "item": "res://assets/kenney/board_game_icons/book_open.png",
+    "move": "res://assets/kenney/board_game_icons/arrow_cross.png"
+  }
+}

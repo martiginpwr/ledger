@@ -6,6 +6,8 @@ const SKILLS_PATH := "res://data/content/skills.json"
 const ITEMS_PATH := "res://data/content/items.json"
 const MOBS_PATH := "res://data/content/mobs.json"
 const BOSSES_PATH := "res://data/content/bosses.json"
+const OBJECTIVES_PATH := "res://data/content/objectives.json"
+const PRESENTATION_PATH := "res://data/ui/presentation.json"
 const AUTOSAVE_PATH := "user://autosave_match.json"
 const AUTOSAVE_VERSION := 1
 const ContentLoaderScript = preload("res://scripts/core/content_loader.gd")
@@ -19,7 +21,7 @@ const PANEL_GAP := 18.0
 const ACTION_PANEL_HEIGHT := 142.0
 const ACTION_BUTTON_COUNT := 8
 const CELL_RADIUS := 18.0
-const TOKEN_RADIUS := 7.0
+const TOKEN_RADIUS := 8.0
 const TURN_PHASE_AWAIT_ROLL := "await_roll"
 const TURN_PHASE_AWAIT_MOVE := "await_move"
 const TURN_PHASE_MOVING := "moving"
@@ -55,6 +57,8 @@ var _skills: Array = []
 var _items_data: Array = []
 var _mobs_data: Array = []
 var _bosses_data: Array = []
+var _objectives_data: Array = []
+var _presentation: Dictionary = {}
 var _board: Dictionary = {}
 var _players: Array = []
 var _property_states: Dictionary = {}
@@ -77,9 +81,16 @@ var _log_lines: Array = []
 var _raider_bonus_claimed: Dictionary = {}
 var _trickster_reroll_claimed: Dictionary = {}
 var _floating_texts: Array = []
+var _preview_highlight_cells: Dictionary = {}
+var _hovered_action_button_index := -1
+var _active_objectives: Array = []
+var _completed_objective_ids: Dictionary = {}
 var _board_bounds := Rect2(-1.0, -1.0, 2.0, 2.0)
 var _board_scale := 1.0
 var _board_offset := Vector2.ZERO
+var _board_texture: Texture2D
+var _cell_icon_textures: Dictionary = {}
+var _action_icon_textures: Dictionary = {}
 var _animating_player_index := -1
 var _next_mob_instance_id := 1
 var _is_game_over := false
@@ -93,12 +104,15 @@ var _turn_label: Label
 var _timer_label: Label
 var _roll_label: Label
 var _roster_label: Label
+var _objectives_label: Label
 var _hover_label: Label
 var _detail_label: Label
 var _log_label: Label
 var _roll_button: Button
 var _end_turn_button: Button
 var _new_board_button: Button
+var _action_hint_label: Label
+var _action_detail_label: Label
 var _action_buttons: Array = []
 var _menu_overlay: Control
 var _menu_message_label: Label
@@ -176,13 +190,16 @@ func _draw() -> void:
 	_recalculate_board_transform()
 
 	var board_rect := _get_board_rect()
-	draw_rect(board_rect, Color("111827"), true)
-	draw_rect(board_rect, Color("1f2937"), false, 2.0)
+	draw_rect(board_rect, _presentation_color("board_base_color", Color("111827")), true)
+	if _board_texture != null:
+		draw_texture_rect(_board_texture, board_rect, true, Color(1.0, 1.0, 1.0, 0.45))
+	draw_rect(board_rect, _presentation_color("board_overlay_color", Color(0.0, 0.0, 0.0, 0.06)), true)
+	draw_rect(board_rect, _presentation_color("board_border_color", Color("1f2937")), false, 2.0)
 	var board_center: Vector2 = board_rect.position + board_rect.size * 0.5
 	var loop_radius: float = minf(board_rect.size.x, board_rect.size.y) * 0.23
-	draw_circle(board_center + Vector2(-board_rect.size.x * 0.22, 0.0), loop_radius, Color(0.08, 0.22, 0.28, 0.12))
-	draw_circle(board_center + Vector2(board_rect.size.x * 0.22, 0.0), loop_radius, Color(0.22, 0.14, 0.08, 0.12))
-	draw_circle(board_center, loop_radius * 0.48, Color(0.25, 0.25, 0.12, 0.12))
+	draw_circle(board_center + Vector2(-board_rect.size.x * 0.22, 0.0), loop_radius, Color(0.55, 0.39, 0.18, 0.08))
+	draw_circle(board_center + Vector2(board_rect.size.x * 0.22, 0.0), loop_radius, Color(0.45, 0.29, 0.16, 0.07))
+	draw_circle(board_center, loop_radius * 0.48, Color(0.63, 0.54, 0.22, 0.09))
 	_draw_board_grid(board_rect)
 	_draw_connections()
 	_draw_cells()
@@ -290,6 +307,15 @@ func _build_ui() -> void:
 	_style_label(_roster_label, 15, Color("e5eefc"), 120.0)
 	info_vbox.add_child(_roster_label)
 
+	var objectives_title := Label.new()
+	objectives_title.text = "CONTRACTS"
+	_style_label(objectives_title, 18, Color("f9a8d4"))
+	info_vbox.add_child(objectives_title)
+
+	_objectives_label = Label.new()
+	_style_label(_objectives_label, 14, Color("e5eefc"), 108.0)
+	info_vbox.add_child(_objectives_label)
+
 	var hover_title := Label.new()
 	hover_title.text = "HOVERED CELL"
 	_style_label(hover_title, 18, Color("fcd34d"))
@@ -327,10 +353,10 @@ func _build_ui() -> void:
 	action_vbox.add_theme_constant_override("separation", 10)
 	action_margin.add_child(action_vbox)
 
-	var action_hint := Label.new()
-	action_hint.text = "Travel the board, strike fast, and spend your action window before the timer expires."
-	_style_label(action_hint, 15, Color("bbf7d0"))
-	action_vbox.add_child(action_hint)
+	_action_hint_label = Label.new()
+	_action_hint_label.text = "Travel the board, strike fast, and spend your action window before the timer expires."
+	_style_label(_action_hint_label, 15, Color("bbf7d0"))
+	action_vbox.add_child(_action_hint_label)
 
 	var action_row := HBoxContainer.new()
 	action_row.add_theme_constant_override("separation", 12)
@@ -360,11 +386,17 @@ func _build_ui() -> void:
 	cell_action_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	action_vbox.add_child(cell_action_row)
 
+	_action_detail_label = Label.new()
+	_style_label(_action_detail_label, 14, Color("cbd5e1"), 34.0)
+	action_vbox.add_child(_action_detail_label)
+
 	for button_index in range(ACTION_BUTTON_COUNT):
 		var action_button := Button.new()
 		action_button.visible = false
 		action_button.disabled = true
 		action_button.pressed.connect(_on_action_button_pressed.bind(button_index))
+		action_button.mouse_entered.connect(_on_action_button_mouse_entered.bind(button_index))
+		action_button.mouse_exited.connect(_on_action_button_mouse_exited.bind(button_index))
 		_style_button(action_button, Color("374151"))
 		cell_action_row.add_child(action_button)
 		_action_buttons.append(action_button)
@@ -471,7 +503,7 @@ func _style_label(label: Label, font_size: int, color: Color, minimum_height: fl
 
 
 func _style_button(button: Button, background: Color) -> void:
-	button.custom_minimum_size = Vector2(132.0, 42.0)
+	button.custom_minimum_size = Vector2(148.0, 42.0)
 	button.add_theme_font_size_override("font_size", 16)
 	button.add_theme_color_override("font_color", Color("f8fafc"))
 	button.add_theme_color_override("font_hover_color", Color("ffffff"))
@@ -560,6 +592,8 @@ func _save_autosave() -> void:
 		"shop_states": _serialize_value(_shop_states),
 		"mob_states": _serialize_value(_mob_states),
 		"boss_states": _serialize_value(_boss_states),
+		"active_objectives": _serialize_value(_active_objectives),
+		"completed_objective_ids": _serialize_value(_completed_objective_ids),
 		"current_player_index": _current_player_index,
 		"round_number": _round_number,
 		"turn_phase": _turn_phase,
@@ -608,6 +642,8 @@ func _load_autosave() -> bool:
 	_shop_states = _deserialize_value(data.get("shop_states", {}))
 	_mob_states = _deserialize_value(data.get("mob_states", {}))
 	_boss_states = _deserialize_value(data.get("boss_states", {}))
+	_active_objectives = _deserialize_value(data.get("active_objectives", []))
+	_completed_objective_ids = _deserialize_value(data.get("completed_objective_ids", {}))
 	_current_player_index = int(data.get("current_player_index", 0))
 	_round_number = int(data.get("round_number", 1))
 	_turn_phase = str(data.get("turn_phase", TURN_PHASE_AWAIT_ROLL))
@@ -630,6 +666,8 @@ func _load_autosave() -> bool:
 	_hovered_cell_id = ""
 	_floating_texts.clear()
 	_animating_player_index = -1
+	if _active_objectives.is_empty() and not _objectives_data.is_empty():
+		_reset_active_objectives()
 	_refresh_board_bounds()
 	if _turn_phase == TURN_PHASE_READY_TO_END:
 		_refresh_available_actions()
@@ -653,6 +691,8 @@ func _load_content() -> bool:
 	var items: Variant = loader.load_json(ITEMS_PATH)
 	var mobs: Variant = loader.load_json(MOBS_PATH)
 	var bosses: Variant = loader.load_json(BOSSES_PATH)
+	var objectives: Variant = loader.load_json(OBJECTIVES_PATH)
+	var presentation: Variant = loader.load_json(PRESENTATION_PATH)
 
 	if typeof(rules) != TYPE_DICTIONARY:
 		push_error("Rules failed to load from %s" % RULES_PATH)
@@ -672,6 +712,9 @@ func _load_content() -> bool:
 	if typeof(bosses) != TYPE_ARRAY:
 		push_error("Bosses failed to load from %s" % BOSSES_PATH)
 		return false
+	if typeof(objectives) != TYPE_ARRAY:
+		push_error("Objectives failed to load from %s" % OBJECTIVES_PATH)
+		return false
 
 	_rules = rules
 	_origins = origins
@@ -679,7 +722,59 @@ func _load_content() -> bool:
 	_items_data = items
 	_mobs_data = mobs
 	_bosses_data = bosses
+	_objectives_data = objectives
+	_presentation = presentation if typeof(presentation) == TYPE_DICTIONARY else {}
+	_load_presentation_assets()
 	return true
+
+
+func _load_presentation_assets() -> void:
+	_board_texture = _load_texture_resource(str(_presentation.get("board_texture", "")))
+	_cell_icon_textures = _load_texture_map(_presentation.get("cell_icons", {}))
+	_action_icon_textures = _load_texture_map(_presentation.get("action_icons", {}))
+	_apply_static_button_icons()
+
+
+func _load_texture_map(source: Variant) -> Dictionary:
+	var loaded := {}
+	if typeof(source) != TYPE_DICTIONARY:
+		return loaded
+
+	for key_variant in source.keys():
+		var texture := _load_texture_resource(str(source[key_variant]))
+		if texture != null:
+			loaded[str(key_variant)] = texture
+	return loaded
+
+
+func _load_texture_resource(path: String) -> Texture2D:
+	if path.is_empty():
+		return null
+	var image: Image = Image.new()
+	var error: int = image.load(ProjectSettings.globalize_path(path))
+	if error != OK:
+		return null
+	return ImageTexture.create_from_image(image)
+
+
+func _apply_static_button_icons() -> void:
+	if _roll_button != null:
+		_roll_button.icon = _action_icon_textures.get("roll", null)
+	if _end_turn_button != null:
+		_end_turn_button.icon = _action_icon_textures.get("end_turn", null)
+	if _new_board_button != null:
+		_new_board_button.icon = _action_icon_textures.get("menu", null)
+
+
+func _presentation_color(key: String, fallback: Color) -> Color:
+	var value: Variant = _presentation.get(key, "")
+	if typeof(value) == TYPE_STRING and not str(value).is_empty():
+		return Color(str(value))
+	return fallback
+
+
+func _cell_icon_size() -> float:
+	return float(_presentation.get("cell_icon_size", 18))
 
 
 func _start_new_match(player_count: int) -> void:
@@ -693,6 +788,8 @@ func _start_new_match(player_count: int) -> void:
 	_shop_states.clear()
 	_mob_states.clear()
 	_boss_states.clear()
+	_active_objectives.clear()
+	_completed_objective_ids.clear()
 	_raider_bonus_claimed.clear()
 	_trickster_reroll_claimed.clear()
 	for cell_id in _board.get("cells", {}).keys():
@@ -710,6 +807,7 @@ func _start_new_match(player_count: int) -> void:
 	_assign_bosses_to_board()
 	_assign_shop_stock()
 	_players = _build_players(player_count)
+	_reset_active_objectives()
 	_current_player_index = 0
 	_round_number = 1
 	_last_roll = -1
@@ -784,6 +882,16 @@ func _build_players(player_count: int) -> Array:
 				"fortune_card_ready": false,
 				"power_strike_ready": false,
 				"skill_cooldowns": {starter_skill_id: 0},
+				"objective_counters": {
+					"mobs_defeated": 0,
+					"raids_won": 0,
+					"shrine_visits": 0,
+					"shop_buys": 0,
+					"events_resolved": 0,
+					"players_defeated": 0,
+					"bosses_defeated": 0,
+					"casino_wins": 0
+				},
 				"inventory": [],
 				"cell_id": start_cell_id,
 				"board_position": _cell_world_position(start_cell_id),
@@ -792,6 +900,129 @@ func _build_players(player_count: int) -> Array:
 		)
 
 	return built_players
+
+
+func _reset_active_objectives() -> void:
+	_active_objectives.clear()
+	_completed_objective_ids.clear()
+	for _slot_index in range(3):
+		var next_objective := _draw_next_objective()
+		if next_objective.is_empty():
+			break
+		_active_objectives.append(next_objective)
+
+
+func _draw_next_objective() -> Dictionary:
+	if _objectives_data.is_empty():
+		return {}
+
+	var active_ids := {}
+	for objective_variant in _active_objectives:
+		var objective: Dictionary = objective_variant
+		active_ids[str(objective.get("id", ""))] = true
+
+	var candidates := []
+	for objective_variant in _objectives_data:
+		var objective: Dictionary = objective_variant
+		var objective_id := str(objective.get("id", ""))
+		if objective_id.is_empty() or _completed_objective_ids.has(objective_id) or active_ids.has(objective_id):
+			continue
+		candidates.append(objective.duplicate(true))
+
+	if candidates.is_empty():
+		return {}
+	return candidates[_rng.randi_range(0, candidates.size() - 1)]
+
+
+func _increment_objective_counter(player_index: int, counter_id: String, amount: int = 1) -> void:
+	if player_index < 0 or player_index >= _players.size() or counter_id.is_empty() or amount <= 0:
+		return
+	var counters: Dictionary = _players[player_index].get("objective_counters", {}).duplicate(true)
+	counters[counter_id] = int(counters.get(counter_id, 0)) + amount
+	_players[player_index]["objective_counters"] = counters
+	_evaluate_player_objectives(player_index)
+
+
+func _evaluate_player_objectives(player_index: int, claim_timing: String = "any") -> void:
+	if player_index < 0 or player_index >= _players.size():
+		return
+
+	var slot_index := 0
+	while slot_index < _active_objectives.size():
+		var objective: Dictionary = _active_objectives[slot_index]
+		var objective_timing := str(objective.get("claim_timing", "any"))
+		if objective_timing != "any" and objective_timing != claim_timing:
+			slot_index += 1
+			continue
+		var progress := _objective_progress_for_player(objective, player_index)
+		var target := int(objective.get("target", 1))
+		if progress >= target:
+			_claim_objective(slot_index, player_index)
+			continue
+		slot_index += 1
+
+
+func _claim_objective(slot_index: int, player_index: int) -> void:
+	if slot_index < 0 or slot_index >= _active_objectives.size() or player_index < 0 or player_index >= _players.size():
+		return
+
+	var objective: Dictionary = _active_objectives[slot_index]
+	var reward_gold := int(objective.get("reward_gold", 0))
+	var reward_renown := int(objective.get("reward_renown", 0))
+	var objective_name := str(objective.get("name", "Contract"))
+	var objective_id := str(objective.get("id", ""))
+	_completed_objective_ids[objective_id] = true
+	_players[player_index]["gold"] = int(_players[player_index].get("gold", 0)) + reward_gold
+	_grant_renown(player_index, reward_renown)
+	_spawn_player_floating_text(player_index, objective_name, Color("f9a8d4"), 1.3)
+	_append_log(
+		"%s secured contract '%s' for +%d gold and +%d Renown." %
+		[_players[player_index].get("name", "Player"), objective_name, reward_gold, reward_renown]
+	)
+	var replacement := _draw_next_objective()
+	if replacement.is_empty():
+		_active_objectives.remove_at(slot_index)
+	else:
+		_active_objectives[slot_index] = replacement
+
+
+func _objective_progress_for_player(objective: Dictionary, player_index: int) -> int:
+	if player_index < 0 or player_index >= _players.size():
+		return 0
+
+	var player: Dictionary = _players[player_index]
+	var kind := str(objective.get("kind", "counter"))
+	if kind == "counter":
+		var counters: Dictionary = player.get("objective_counters", {})
+		return int(counters.get(str(objective.get("counter_id", "")), 0))
+
+	match str(objective.get("metric", "")):
+		"owned_properties":
+			return _owned_property_count(player_index)
+		"strongholds_owned":
+			return _owned_stronghold_count(player_index)
+		"gold":
+			return int(player.get("gold", 0))
+		_:
+			return 0
+
+
+func _owned_property_count(player_index: int) -> int:
+	var total := 0
+	for property_state_variant in _property_states.values():
+		var property_state: Dictionary = property_state_variant
+		if int(property_state.get("owner_index", -1)) == player_index:
+			total += 1
+	return total
+
+
+func _owned_stronghold_count(player_index: int) -> int:
+	var total := 0
+	for property_state_variant in _property_states.values():
+		var property_state: Dictionary = property_state_variant
+		if int(property_state.get("owner_index", -1)) == player_index and int(property_state.get("level", 0)) >= 3:
+			total += 1
+	return total
 
 
 func _reset_round_passives() -> void:
@@ -1074,6 +1305,18 @@ func _on_action_button_pressed(button_index: int) -> void:
 	_perform_major_action(action)
 
 
+func _on_action_button_mouse_entered(button_index: int) -> void:
+	_hovered_action_button_index = button_index
+	_refresh_action_preview()
+
+
+func _on_action_button_mouse_exited(button_index: int) -> void:
+	if _hovered_action_button_index != button_index:
+		return
+	_hovered_action_button_index = -1
+	_refresh_action_preview()
+
+
 func _roll_current_turn(is_auto: bool) -> void:
 	var faces: Array = _rules.get("movement_die_faces", [1, 2, 2, 3, 3, 4])
 	_last_roll = int(faces[_rng.randi_range(0, faces.size() - 1)])
@@ -1247,12 +1490,14 @@ func _resolve_destination(cell_id: String) -> void:
 		"event":
 			var outcome := _resolve_event_result(_current_player_index)
 			message += " " + outcome
+			_increment_objective_counter(_current_player_index, "events_resolved")
 		"shrine":
 			message += " The shrine's calm restores 1 HP."
 			_players[_current_player_index]["hp"] = min(
 				int(player.get("max_hp", 0)),
 				int(player.get("hp", 0)) + 1
 			)
+			_increment_objective_counter(_current_player_index, "shrine_visits")
 		"property":
 			message += " This property can be claimed or upgraded in a later action pass."
 		"shop":
@@ -1338,6 +1583,7 @@ func _end_turn() -> void:
 	if _players.is_empty():
 		return
 
+	_evaluate_player_objectives(_current_player_index, "end_turn")
 	var completed_player: Dictionary = _players[_current_player_index]
 	_append_log(
 		"%s ends the turn with %d HP, %d gold, %d Renown." %
@@ -1510,7 +1756,7 @@ func _get_board_rect() -> Rect2:
 
 func _draw_board_grid(board_rect: Rect2) -> void:
 	var spacing := 48.0
-	var grid_color := Color(1.0, 1.0, 1.0, 0.04)
+	var grid_color := _presentation_color("board_grid_color", Color(1.0, 1.0, 1.0, 0.04))
 
 	var x := board_rect.position.x
 	while x <= board_rect.end.x:
@@ -1532,11 +1778,16 @@ func _draw_connections() -> void:
 		var right_id := str(connection[1])
 		var left_position := _world_to_screen(_cell_world_position(left_id))
 		var right_position := _world_to_screen(_cell_world_position(right_id))
-		draw_line(left_position + Vector2(0.0, 2.0), right_position + Vector2(0.0, 2.0), Color(0.0, 0.0, 0.0, 0.24), 7.0)
+		draw_line(
+			left_position + Vector2(0.0, 2.0),
+			right_position + Vector2(0.0, 2.0),
+			_presentation_color("connection_shadow_color", Color(0.0, 0.0, 0.0, 0.24)),
+			7.0
+		)
 		draw_line(
 			left_position,
 			right_position,
-			Color("3f5168"),
+			_presentation_color("connection_color", Color("3f5168")),
 			4.0
 		)
 
@@ -1554,6 +1805,14 @@ func _draw_cells() -> void:
 				CELL_RADIUS + 8.0,
 				Color(base_color.r, base_color.g, base_color.b, 0.22)
 			)
+		if _preview_highlight_cells.has(cell_id):
+			var preview_color: Color = _preview_highlight_cells[cell_id]
+			draw_circle(
+				screen_position,
+				CELL_RADIUS + 10.0,
+				Color(preview_color.r, preview_color.g, preview_color.b, 0.18)
+			)
+			draw_circle(screen_position, CELL_RADIUS + 13.0, preview_color, false, 2.0)
 
 		draw_circle(screen_position + Vector2(0.0, 3.0), CELL_RADIUS, Color(0.0, 0.0, 0.0, 0.25))
 		draw_circle(screen_position, CELL_RADIUS, base_color)
@@ -1573,6 +1832,17 @@ func _draw_cells() -> void:
 
 
 func _draw_cell_icon(screen_position: Vector2, cell_type: String) -> void:
+	var texture: Texture2D = _cell_icon_textures.get(cell_type, null)
+	if texture != null:
+		var icon_size := _cell_icon_size()
+		draw_texture_rect(
+			texture,
+			Rect2(screen_position - Vector2(icon_size * 0.5, icon_size * 0.5), Vector2(icon_size, icon_size)),
+			false,
+			Color(1.0, 1.0, 1.0, 0.96)
+		)
+		return
+
 	var icon_color := Color("f8fafc")
 	match cell_type:
 		"shrine":
@@ -1689,12 +1959,57 @@ func _draw_players() -> void:
 			screen_position += _token_offset_for_slot(slot, group.size())
 
 		var color: Color = player.get("color", Color.WHITE)
+		draw_circle(screen_position + Vector2(0.0, 2.0), TOKEN_RADIUS + 3.5, Color(0.0, 0.0, 0.0, 0.28))
 		draw_circle(screen_position, TOKEN_RADIUS + 2.0, Color("020617"))
-		draw_circle(screen_position, TOKEN_RADIUS, color)
-		draw_circle(screen_position, TOKEN_RADIUS + 0.5, color.lightened(0.3), false, 1.0)
+		draw_circle(screen_position, TOKEN_RADIUS + 0.8, color.darkened(0.08))
+		draw_circle(screen_position, TOKEN_RADIUS - 2.2, Color("e2e8f0"))
+		_draw_player_emblem(screen_position, player, color)
 
 		if player_index == _current_player_index:
 			draw_circle(screen_position, TOKEN_RADIUS + 4.0, Color("f8fafc"), false, 1.5)
+
+
+func _draw_player_emblem(screen_position: Vector2, player: Dictionary, accent_color: Color) -> void:
+	var origin_id := str(player.get("origin_id", ""))
+	var emblem_color := accent_color.darkened(0.45)
+	match origin_id:
+		"raider":
+			draw_line(screen_position + Vector2(-4.0, -4.0), screen_position + Vector2(4.0, 4.0), emblem_color, 1.8)
+			draw_line(screen_position + Vector2(-3.0, 4.0), screen_position + Vector2(4.5, -3.5), emblem_color, 1.8)
+		"warden":
+			var shield_points := PackedVector2Array([
+				screen_position + Vector2(0.0, -5.0),
+				screen_position + Vector2(4.5, -2.0),
+				screen_position + Vector2(3.5, 3.5),
+				screen_position + Vector2(0.0, 5.0),
+				screen_position + Vector2(-3.5, 3.5),
+				screen_position + Vector2(-4.5, -2.0),
+				screen_position + Vector2(0.0, -5.0)
+			])
+			draw_polyline(shield_points, emblem_color, 1.7)
+			draw_line(screen_position + Vector2(0.0, -3.5), screen_position + Vector2(0.0, 3.0), emblem_color, 1.4)
+		"arcanist":
+			var tri_points := PackedVector2Array([
+				screen_position + Vector2(0.0, -5.0),
+				screen_position + Vector2(4.5, 3.0),
+				screen_position + Vector2(-4.5, 3.0),
+				screen_position + Vector2(0.0, -5.0)
+			])
+			draw_polyline(tri_points, emblem_color, 1.7)
+			draw_circle(screen_position + Vector2(0.0, 0.5), 1.8, emblem_color)
+		"trickster":
+			var diamond_points := PackedVector2Array([
+				screen_position + Vector2(0.0, -5.0),
+				screen_position + Vector2(4.5, 0.0),
+				screen_position + Vector2(0.0, 5.0),
+				screen_position + Vector2(-4.5, 0.0),
+				screen_position + Vector2(0.0, -5.0)
+			])
+			draw_polyline(diamond_points, emblem_color, 1.7)
+			draw_line(screen_position + Vector2(-2.8, 0.0), screen_position + Vector2(2.8, 0.0), emblem_color, 1.4)
+			draw_circle(screen_position + Vector2(0.0, 0.0), 1.0, emblem_color)
+		_:
+			draw_circle(screen_position, 3.0, emblem_color)
 
 
 func _draw_floating_texts() -> void:
@@ -1828,9 +2143,15 @@ func _update_ui() -> void:
 		_timer_label.text = ""
 		_roll_label.text = ""
 		_roster_label.text = ""
+		_objectives_label.text = ""
 		_hover_label.text = ""
 		_detail_label.text = ""
 		_log_label.text = ""
+		if _action_hint_label != null:
+			_action_hint_label.text = "Start or restore a match to enter the war table."
+		if _action_detail_label != null:
+			_action_detail_label.text = ""
+		_refresh_action_preview()
 		return
 
 	var current_player: Dictionary = _players[_current_player_index]
@@ -1877,15 +2198,22 @@ func _update_ui() -> void:
 		else:
 			_roll_label.text = "Travel Die: %d steps" % _current_move_steps
 	_roster_label.text = _format_roster_text()
+	if _objectives_label != null:
+		_objectives_label.text = _format_active_objectives_text(_current_player_index)
 	_hover_label.text = "Cell: %s" % (
 		"None" if _hovered_cell_id.is_empty() else _cell_name(_hovered_cell_id)
 	)
 	_detail_label.text = _detail_text_for_hovered_cell()
 	_log_label.text = _format_log_text()
+	if _action_hint_label != null:
+		_action_hint_label.text = _phase_description()
+	if _action_detail_label != null:
+		_action_detail_label.text = _action_detail_text()
 
 	_roll_button.disabled = _turn_phase != TURN_PHASE_AWAIT_ROLL
 	_end_turn_button.disabled = _turn_phase != TURN_PHASE_READY_TO_END
 	_update_action_buttons()
+	_refresh_action_preview()
 
 
 func _detail_text_for_hovered_cell() -> String:
@@ -1966,6 +2294,28 @@ func _format_roster_text() -> String:
 	return "\n".join(lines)
 
 
+func _format_active_objectives_text(player_index: int) -> String:
+	if _active_objectives.is_empty():
+		return "No contracts remain in the deck."
+	var lines := []
+	for objective_variant in _active_objectives:
+		var objective: Dictionary = objective_variant
+		var progress := _objective_progress_for_player(objective, player_index)
+		var target := int(objective.get("target", 1))
+		lines.append(
+			"%s %d/%d  (+%d R, +%d G)\n%s" %
+			[
+				objective.get("name", "Contract"),
+				min(progress, target),
+				target,
+				objective.get("reward_renown", 0),
+				objective.get("reward_gold", 0),
+				objective.get("description", "")
+			]
+		)
+	return "\n\n".join(lines)
+
+
 func _format_log_text() -> String:
 	if _log_lines.is_empty():
 		return "Recent turns and combat will appear here."
@@ -1984,6 +2334,8 @@ func _update_action_buttons() -> void:
 			action_button.visible = false
 			action_button.disabled = true
 			action_button.text = ""
+			action_button.tooltip_text = ""
+			action_button.icon = null
 			continue
 
 		var action: Dictionary = _available_actions[button_index]
@@ -1999,6 +2351,184 @@ func _update_action_buttons() -> void:
 		else:
 			_style_button(action_button, Color("374151"))
 		action_button.text = str(action.get("label", "Action"))
+		action_button.tooltip_text = _action_summary_text(action)
+		action_button.icon = _action_icon_for_action(action)
+
+
+func _refresh_action_preview() -> void:
+	var new_preview: Dictionary = {}
+	if _hovered_action_button_index >= 0 and _hovered_action_button_index < _available_actions.size():
+		new_preview = _preview_cells_for_action(_available_actions[_hovered_action_button_index])
+	if new_preview.hash() == _preview_highlight_cells.hash():
+		return
+	_preview_highlight_cells = new_preview
+	queue_redraw()
+
+
+func _action_detail_text() -> String:
+	if _turn_phase == TURN_PHASE_AWAIT_ROLL:
+		return "Roll to reveal this turn's travel range."
+	if _turn_phase == TURN_PHASE_AWAIT_MOVE:
+		return "Choose a highlighted route. Hover a cell to inspect its rewards, owner, and threats."
+	if _turn_phase != TURN_PHASE_READY_TO_END:
+		return "Waiting for the current resolution to finish."
+	if _available_actions.is_empty():
+		return "No cell actions are available here. End the turn or use the board to set up a stronger next move."
+	if _hovered_action_button_index >= 0 and _hovered_action_button_index < _available_actions.size():
+		return _action_summary_text(_available_actions[_hovered_action_button_index])
+	return "Hover an action card to preview its target on the board."
+
+
+func _action_summary_text(action: Dictionary) -> String:
+	var action_id := str(action.get("id", ""))
+	var budget_type := str(action.get("budget_type", "major"))
+	var prefix := "Quick action. " if budget_type == "quick" else "Major action. "
+	match action_id:
+		"attack_player":
+			return "%sStrike %s on your current cell." % [prefix, _player_name_safe(int(action.get("target_player_index", -1)), "the target")]
+		"claim_property":
+			return "%sSpend gold to claim this neutral property and start collecting income." % prefix
+		"upgrade_property":
+			return "%sInvest in this property for stronger income and defense." % prefix
+		"raid_property":
+			return "%sAssault the property on this cell to steal value and suppress its income." % prefix
+		"heal_at_shrine":
+			return "%sSpend 3 gold here to restore 6 HP." % prefix
+		"train_signature_stat":
+			return "%sSpend gold at this shrine to improve your hero's signature stat." % prefix
+		"buy_weapon_upgrade":
+			return "%sSpend 5 gold for permanent weapon power." % prefix
+		"buy_armor_upgrade":
+			return "%sSpend 5 gold for permanent armor." % prefix
+		"buy_shop_item":
+			return "%sBuy %s and add it to your bag." % [prefix, action.get("label", "an item")]
+		"casino_coin_flip":
+			return "%sBet 3 gold on a swingy coin flip for profit or pain." % prefix
+		"challenge_boss":
+			return "%sFight the boss guarding this entrance for renown and rewards." % prefix
+		"power_strike":
+			return "%sPrime your next physical hit this turn to land harder." % prefix
+		"hold_fast":
+			return "%sBrace for impact and gain temporary Guard." % prefix
+		"shadowstep":
+			return "%sBlink to %s after your main action." % [prefix, _cell_name(str(action.get("target_cell_id", "")))]
+		"arc_bolt_player":
+			return "%sFire arc energy across the board at %s." % [prefix, _player_name_safe(int(action.get("target_player_index", -1)), "the target")]
+		"arc_bolt_mob":
+			return "%sBlast %s at range." % [prefix, _mob_states.get(str(action.get("target_mob_id", "")), {}).get("name", "the mob")]
+		"arc_bolt_boss":
+			return "%sZap the boss at %s from up to three steps away." % [prefix, _cell_name(str(action.get("target_boss_cell_id", "")))]
+		"use_item":
+			return "%sUse %s from your bag." % [prefix, _item_name_by_id(str(action.get("inventory_item_id", "")))]
+		"use_item_throwing_knife_player":
+			return "%sThrow a knife at %s within one link." % [prefix, _player_name_safe(int(action.get("target_player_index", -1)), "the target")]
+		"use_item_throwing_knife_mob":
+			return "%sThrow a knife at %s within one link." % [prefix, _mob_states.get(str(action.get("target_mob_id", "")), {}).get("name", "the mob")]
+		_:
+			return "%sResolve %s." % [prefix, str(action.get("label", "this action"))]
+
+
+func _preview_cells_for_action(action: Dictionary) -> Dictionary:
+	if _players.is_empty():
+		return {}
+
+	var preview := {}
+	var action_id := str(action.get("id", ""))
+	var current_cell_id := str(_players[_current_player_index].get("cell_id", ""))
+	var preview_color := _preview_color_for_action(action_id)
+
+	match action_id:
+		"attack_player", "arc_bolt_player", "use_item_throwing_knife_player":
+			preview[current_cell_id] = Color("cbd5e1")
+			var target_player_index := int(action.get("target_player_index", -1))
+			if target_player_index >= 0 and target_player_index < _players.size():
+				preview[str(_players[target_player_index].get("cell_id", ""))] = preview_color
+		"arc_bolt_mob", "use_item_throwing_knife_mob":
+			preview[current_cell_id] = Color("cbd5e1")
+			var target_mob_id := str(action.get("target_mob_id", ""))
+			if _mob_states.has(target_mob_id):
+				preview[str(_mob_states[target_mob_id].get("cell_id", ""))] = preview_color
+		"arc_bolt_boss":
+			preview[current_cell_id] = Color("cbd5e1")
+			preview[str(action.get("target_boss_cell_id", ""))] = preview_color
+		"shadowstep":
+			preview[current_cell_id] = Color("cbd5e1")
+			preview[str(action.get("target_cell_id", ""))] = preview_color
+		_:
+			preview[current_cell_id] = preview_color
+
+	return preview
+
+
+func _preview_color_for_action(action_id: String) -> Color:
+	match action_id:
+		"attack_player", "raid_property", "power_strike", "use_item_throwing_knife_player", "use_item_throwing_knife_mob":
+			return Color("fb7185")
+		"arc_bolt_player", "arc_bolt_mob", "arc_bolt_boss":
+			return Color("60a5fa")
+		"hold_fast", "heal_at_shrine":
+			return Color("4ade80")
+		"shadowstep", "casino_coin_flip":
+			return Color("c084fc")
+		"claim_property", "upgrade_property", "buy_weapon_upgrade", "buy_armor_upgrade", "buy_shop_item", "challenge_boss", "train_signature_stat":
+			return Color("fbbf24")
+		"use_item":
+			return Color("2dd4bf")
+		_:
+			return Color("e2e8f0")
+
+
+func _item_name_by_id(item_id: String) -> String:
+	for item_variant in _items_data:
+		var item: Dictionary = item_variant
+		if str(item.get("id", "")) == item_id:
+			return str(item.get("name", "Item"))
+	return "Item"
+
+
+func _player_name_safe(player_index: int, fallback: String = "Player") -> String:
+	if player_index < 0 or player_index >= _players.size():
+		return fallback
+	return str(_players[player_index].get("name", fallback))
+
+
+func _action_icon_for_action(action: Dictionary) -> Texture2D:
+	var action_id := str(action.get("id", ""))
+	var icon_key := "item"
+	match action_id:
+		"attack_player", "power_strike", "use_item_throwing_knife_player", "use_item_throwing_knife_mob":
+			icon_key = "attack"
+		"raid_property":
+			icon_key = "raid"
+		"claim_property", "upgrade_property":
+			icon_key = "property"
+		"heal_at_shrine", "train_signature_stat":
+			icon_key = "shrine"
+		"buy_weapon_upgrade", "buy_armor_upgrade", "buy_shop_item":
+			icon_key = "shop"
+		"casino_coin_flip":
+			icon_key = "casino"
+		"challenge_boss":
+			icon_key = "boss"
+		"arc_bolt_player", "arc_bolt_mob", "arc_bolt_boss":
+			icon_key = "magic"
+		"hold_fast":
+			icon_key = "defense"
+		"shadowstep":
+			icon_key = "move"
+		"use_item":
+			var item_id := str(action.get("inventory_item_id", ""))
+			if item_id == "ward_scroll":
+				icon_key = "defense"
+			elif item_id == "fortune_card":
+				icon_key = "casino"
+			elif item_id == "trap_kit":
+				icon_key = "raid"
+			else:
+				icon_key = "item"
+		_:
+			icon_key = "item"
+	return _action_icon_textures.get(icon_key, null)
 
 
 func _refresh_available_actions() -> void:
@@ -2327,6 +2857,7 @@ func _perform_major_action(action: Dictionary) -> void:
 				_property_states[cell_id]["level"] = 1
 				_property_states[cell_id]["income_blocked"] = false
 				_append_log("%s claimed %s as an Outpost for %d gold." % [player_name, _cell_name(cell_id), claim_cost])
+				_evaluate_player_objectives(_current_player_index)
 				consumed = true
 		"upgrade_property":
 			if _property_states.has(cell_id):
@@ -2344,6 +2875,7 @@ func _perform_major_action(action: Dictionary) -> void:
 						"%s upgraded %s to level %d for %d gold." %
 						[player_name, _cell_name(cell_id), int(state.get("level", 0)), upgrade_cost]
 					)
+					_evaluate_player_objectives(_current_player_index)
 					consumed = true
 		"raid_property":
 			consumed = _perform_property_raid(cell_id)
@@ -2365,6 +2897,7 @@ func _perform_major_action(action: Dictionary) -> void:
 				_players[_current_player_index]["weapon_bonus"] = int(player.get("weapon_bonus", 0)) + 1
 				_spawn_player_floating_text(_current_player_index, "Blade +1", Color("93c5fd"))
 				_append_log("%s bought a weapon upgrade at %s." % [player_name, _cell_name(cell_id)])
+				_increment_objective_counter(_current_player_index, "shop_buys")
 				consumed = true
 		"buy_armor_upgrade":
 			if int(player.get("gold", 0)) >= 5 and int(player.get("armor_bonus", 0)) < 2:
@@ -2372,6 +2905,7 @@ func _perform_major_action(action: Dictionary) -> void:
 				_players[_current_player_index]["armor_bonus"] = int(player.get("armor_bonus", 0)) + 1
 				_spawn_player_floating_text(_current_player_index, "Armor +1", Color("93c5fd"))
 				_append_log("%s bought an armor upgrade at %s." % [player_name, _cell_name(cell_id)])
+				_increment_objective_counter(_current_player_index, "shop_buys")
 				consumed = true
 		"buy_shop_item":
 			consumed = _buy_shop_item(cell_id, str(action.get("item_id", "")))
@@ -2451,6 +2985,7 @@ func _perform_property_raid(cell_id: String) -> bool:
 		downgrade_text = " The property was damaged and lost a level."
 
 	_property_states[cell_id] = state
+	_increment_objective_counter(_current_player_index, "raids_won")
 	_append_log(
 		"%s raided %s, stole %d gold from %s, and blocked its next income.%s%s%s" %
 		[player_name, _cell_name(cell_id), stolen_gold, owner.get("name", "Player"), downgrade_text, passive_text, trap_text]
@@ -2518,6 +3053,7 @@ func _perform_casino_coin_flip() -> bool:
 		_players[_current_player_index]["gold"] = int(_players[_current_player_index].get("gold", 0)) + 6
 		_spawn_player_floating_text(_current_player_index, "+3g", Color("fbbf24"))
 		_append_log("%s won the coin flip at the casino and came out ahead.%s" % [player_name, reroll_text])
+		_increment_objective_counter(_current_player_index, "casino_wins")
 	else:
 		_spawn_player_floating_text(_current_player_index, "-3g", Color("fda4af"))
 		_append_log("%s lost the coin flip at the casino.%s" % [player_name, reroll_text])
@@ -2548,6 +3084,7 @@ func _buy_shop_item(cell_id: String, item_id: String) -> bool:
 		_shop_states[cell_id]["stock"] = stock
 		_spawn_player_floating_text(_current_player_index, stock_entry.get("name", "Item"), Color("7dd3fc"))
 		_append_log("%s bought %s at %s." % [_players[_current_player_index].get("name", "Player"), stock_entry.get("name", "Item"), _cell_name(cell_id)])
+		_increment_objective_counter(_current_player_index, "shop_buys")
 		return true
 	return false
 
@@ -2631,6 +3168,7 @@ func _use_throwing_knife_on_mob(item_id: String, target_mob_id: String) -> bool:
 	if int(_mob_states[target_mob_id].get("hp", 0)) <= 0:
 		_players[_current_player_index]["gold"] = int(_players[_current_player_index].get("gold", 0)) + int(_mob_states[target_mob_id].get("reward_gold", 2))
 		_grant_renown(_current_player_index, int(_mob_states[target_mob_id].get("reward_renown", 0)))
+		_increment_objective_counter(_current_player_index, "mobs_defeated")
 		_append_log("%s falls from the hit." % _mob_states[target_mob_id].get("name", "Mob"))
 		_mob_states.erase(target_mob_id)
 	return true
@@ -2687,6 +3225,7 @@ func _perform_arc_bolt_on_mob(mob_id: String) -> bool:
 	if int(mob_state.get("hp", 0)) <= 0:
 		_players[_current_player_index]["gold"] = int(_players[_current_player_index].get("gold", 0)) + int(mob_state.get("reward_gold", 2))
 		_grant_renown(_current_player_index, int(mob_state.get("reward_renown", 0)))
+		_increment_objective_counter(_current_player_index, "mobs_defeated")
 		_append_log("%s collapsed under the spell." % mob_state.get("name", "Mob"))
 		_mob_states.erase(mob_id)
 	else:
@@ -2712,6 +3251,7 @@ func _perform_arc_bolt_on_boss(cell_id: String) -> bool:
 	if int(boss_state.get("hp", 0)) <= 0:
 		_players[_current_player_index]["gold"] = int(_players[_current_player_index].get("gold", 0)) + int(boss_state.get("reward_gold", 6))
 		_grant_renown(_current_player_index, int(boss_state.get("reward_renown", 4)))
+		_increment_objective_counter(_current_player_index, "bosses_defeated")
 		boss_state["cleared"] = true
 		boss_state["hp"] = 0
 		_append_log("%s is blasted apart, and the dungeon reward is yours." % boss_state.get("name", "Boss"))
@@ -2805,6 +3345,7 @@ func _perform_boss_challenge() -> bool:
 		if int(boss_state.get("hp", 0)) <= 0:
 			_players[_current_player_index]["gold"] = int(_players[_current_player_index].get("gold", 0)) + int(boss_state.get("reward_gold", 6))
 			_grant_renown(_current_player_index, int(boss_state.get("reward_renown", 4)))
+			_increment_objective_counter(_current_player_index, "bosses_defeated")
 			boss_state["cleared"] = true
 			boss_state["hp"] = 0
 			_boss_states[cell_id] = boss_state
@@ -3040,6 +3581,7 @@ func _resolve_mob_combat(player_index: int, mob_id: String) -> void:
 		if int(mob_state.get("hp", 0)) <= 0:
 			_players[player_index]["gold"] = int(_players[player_index].get("gold", 0)) + int(mob_state.get("reward_gold", 2))
 			_grant_renown(player_index, int(mob_state.get("reward_renown", 0)))
+			_increment_objective_counter(player_index, "mobs_defeated")
 			_append_log("%s defeated %s." % [player.get("name", "Player"), mob_state.get("name", "Mob")])
 			_mob_states.erase(mob_id)
 			return
@@ -3068,6 +3610,7 @@ func _handle_player_defeat(winner_index: int, loser_index: int) -> void:
 	if winner_index >= 0 and winner_index < _players.size():
 		_players[winner_index]["gold"] = int(_players[winner_index].get("gold", 0)) + int(_rules.get("rewards", {}).get("player_defeat_gold", 3))
 		_grant_renown(winner_index, int(_rules.get("rewards", {}).get("player_defeat_renown", 2)))
+		_increment_objective_counter(winner_index, "players_defeated")
 
 	_append_log(
 		"%s defeated %s in open combat." %

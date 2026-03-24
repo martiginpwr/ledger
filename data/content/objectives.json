@@ -1,0 +1,113 @@
+[
+  {
+    "id": "mob_hunter",
+    "name": "Mob Hunter",
+    "description": "Defeat 2 roaming mobs.",
+    "kind": "counter",
+    "counter_id": "mobs_defeated",
+    "target": 2,
+    "reward_renown": 2,
+    "reward_gold": 4
+  },
+  {
+    "id": "raid_contract",
+    "name": "Raid Contract",
+    "description": "Win 2 property raids.",
+    "kind": "counter",
+    "counter_id": "raids_won",
+    "target": 2,
+    "reward_renown": 2,
+    "reward_gold": 5
+  },
+  {
+    "id": "pilgrim_path",
+    "name": "Pilgrim Path",
+    "description": "Visit 2 shrines.",
+    "kind": "counter",
+    "counter_id": "shrine_visits",
+    "target": 2,
+    "reward_renown": 1,
+    "reward_gold": 4
+  },
+  {
+    "id": "market_runner",
+    "name": "Market Runner",
+    "description": "Buy 2 things from shops.",
+    "kind": "counter",
+    "counter_id": "shop_buys",
+    "target": 2,
+    "reward_renown": 1,
+    "reward_gold": 4
+  },
+  {
+    "id": "event_seeker",
+    "name": "Event Seeker",
+    "description": "Resolve 3 event cells.",
+    "kind": "counter",
+    "counter_id": "events_resolved",
+    "target": 3,
+    "reward_renown": 2,
+    "reward_gold": 3
+  },
+  {
+    "id": "duelist",
+    "name": "Duelist",
+    "description": "Defeat 1 rival hero.",
+    "kind": "counter",
+    "counter_id": "players_defeated",
+    "target": 1,
+    "reward_renown": 3,
+    "reward_gold": 4
+  },
+  {
+    "id": "boss_bounty",
+    "name": "Boss Bounty",
+    "description": "Defeat 1 dungeon boss.",
+    "kind": "counter",
+    "counter_id": "bosses_defeated",
+    "target": 1,
+    "reward_renown": 3,
+    "reward_gold": 6
+  },
+  {
+    "id": "lucky_break",
+    "name": "Lucky Break",
+    "description": "Win a casino payout.",
+    "kind": "counter",
+    "counter_id": "casino_wins",
+    "target": 1,
+    "reward_renown": 1,
+    "reward_gold": 5
+  },
+  {
+    "id": "frontier_lord",
+    "name": "Frontier Lord",
+    "description": "Own 2 properties at once.",
+    "kind": "live",
+    "metric": "owned_properties",
+    "target": 2,
+    "reward_renown": 2,
+    "reward_gold": 5
+  },
+  {
+    "id": "stronghold_banner",
+    "name": "Stronghold Banner",
+    "description": "Own a level 3 property.",
+    "kind": "live",
+    "metric": "strongholds_owned",
+    "target": 1,
+    "reward_renown": 2,
+    "reward_gold": 5
+  },
+  {
+    "id": "war_chest",
+    "name": "War Chest",
+    "description": "Reach 18 gold at turn end.",
+    "kind": "live",
+    "metric": "gold",
+    "claim_timing": "end_turn",
+    "target": 18,
+    "reward_renown": 1,
+    "reward_gold": 4
+  }
+]
