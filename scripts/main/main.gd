@@ -5,6 +5,8 @@ const ORIGINS_PATH := "res://data/content/origins.json"
 const SKILLS_PATH := "res://data/content/skills.json"
 const MOBS_PATH := "res://data/content/mobs.json"
 const BOSSES_PATH := "res://data/content/bosses.json"
+const AUTOSAVE_PATH := "user://autosave_match.json"
+const AUTOSAVE_VERSION := 1
 const ContentLoaderScript = preload("res://scripts/core/content_loader.gd")
 const BoardGeneratorScript = preload("res://scripts/core/board_generator.gd")
 
@@ -63,6 +65,7 @@ var _turn_time_left := 0.0
 var _last_roll := -1
 var _current_move_steps := 0
 var _major_action_used := false
+var _quick_action_used := false
 var _force_end_turn_after_resolution := false
 var _reachable_cells: Dictionary = {}
 var _available_actions: Array = []
@@ -93,6 +96,9 @@ var _roll_button: Button
 var _end_turn_button: Button
 var _new_board_button: Button
 var _action_buttons: Array = []
+var _menu_overlay: Control
+var _menu_message_label: Label
+var _continue_button: Button
 
 
 func _ready() -> void:
@@ -103,7 +109,9 @@ func _ready() -> void:
 	if not _load_content():
 		return
 
-	_start_new_match(DEFAULT_PLAYER_COUNT)
+	_show_main_menu(
+		"Restore a crash save or launch a fresh match." if _autosave_exists() else "Choose a match size to begin."
+	)
 
 
 func _process(delta: float) -> void:
@@ -124,6 +132,8 @@ func _notification(what: int) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _menu_overlay != null and _menu_overlay.visible:
+		return
 	if _board.is_empty() or _is_game_over:
 		return
 
@@ -144,6 +154,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), Color("0b1120"))
+	draw_circle(Vector2(size.x * 0.18, size.y * 0.2), size.y * 0.22, Color(0.07, 0.17, 0.28, 0.16))
+	draw_circle(Vector2(size.x * 0.82, size.y * 0.24), size.y * 0.2, Color(0.16, 0.11, 0.26, 0.16))
 
 	if _board.is_empty() or _players.is_empty():
 		return
@@ -153,6 +165,11 @@ func _draw() -> void:
 	var board_rect := _get_board_rect()
 	draw_rect(board_rect, Color("111827"), true)
 	draw_rect(board_rect, Color("1f2937"), false, 2.0)
+	var board_center: Vector2 = board_rect.position + board_rect.size * 0.5
+	var loop_radius: float = minf(board_rect.size.x, board_rect.size.y) * 0.23
+	draw_circle(board_center + Vector2(-board_rect.size.x * 0.22, 0.0), loop_radius, Color(0.08, 0.22, 0.28, 0.12))
+	draw_circle(board_center + Vector2(board_rect.size.x * 0.22, 0.0), loop_radius, Color(0.22, 0.14, 0.08, 0.12))
+	draw_circle(board_center, loop_radius * 0.48, Color(0.25, 0.25, 0.12, 0.12))
 	_draw_board_grid(board_rect)
 	_draw_connections()
 	_draw_cells()
@@ -297,7 +314,7 @@ func _build_ui() -> void:
 	action_margin.add_child(action_vbox)
 
 	var action_hint := Label.new()
-	action_hint.text = "Roll, move, then take one major action before the timer expires."
+	action_hint.text = "Travel the board, strike fast, and spend your action window before the timer expires."
 	_style_label(action_hint, 15, Color("bbf7d0"))
 	action_vbox.add_child(action_hint)
 
@@ -318,7 +335,7 @@ func _build_ui() -> void:
 	action_row.add_child(_end_turn_button)
 
 	_new_board_button = Button.new()
-	_new_board_button.text = "New Board"
+	_new_board_button.text = "Menu"
 	_new_board_button.pressed.connect(_on_new_board_pressed)
 	_style_button(_new_board_button, Color("7c3aed"))
 	action_row.add_child(_new_board_button)
@@ -337,6 +354,79 @@ func _build_ui() -> void:
 		_style_button(action_button, Color("374151"))
 		cell_action_row.add_child(action_button)
 		_action_buttons.append(action_button)
+
+	_menu_overlay = Control.new()
+	_menu_overlay.anchor_right = 1.0
+	_menu_overlay.anchor_bottom = 1.0
+	_menu_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	_menu_overlay.visible = false
+	add_child(_menu_overlay)
+
+	var dimmer := ColorRect.new()
+	dimmer.anchor_right = 1.0
+	dimmer.anchor_bottom = 1.0
+	dimmer.color = Color(0.02, 0.04, 0.09, 0.72)
+	_menu_overlay.add_child(dimmer)
+
+	var menu_panel := PanelContainer.new()
+	menu_panel.anchor_left = 0.5
+	menu_panel.anchor_top = 0.5
+	menu_panel.anchor_right = 0.5
+	menu_panel.anchor_bottom = 0.5
+	menu_panel.offset_left = -250.0
+	menu_panel.offset_top = -220.0
+	menu_panel.offset_right = 250.0
+	menu_panel.offset_bottom = 220.0
+	menu_panel.add_theme_stylebox_override("panel", _make_stylebox(Color("0f172a"), Color("f59e0b"), 20))
+	_menu_overlay.add_child(menu_panel)
+
+	var menu_margin := MarginContainer.new()
+	menu_margin.add_theme_constant_override("margin_left", 20)
+	menu_margin.add_theme_constant_override("margin_top", 20)
+	menu_margin.add_theme_constant_override("margin_right", 20)
+	menu_margin.add_theme_constant_override("margin_bottom", 20)
+	menu_panel.add_child(menu_margin)
+
+	var menu_vbox := VBoxContainer.new()
+	menu_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	menu_vbox.add_theme_constant_override("separation", 14)
+	menu_margin.add_child(menu_vbox)
+
+	var menu_title := Label.new()
+	menu_title.text = "RPG BOARD GAME"
+	_style_label(menu_title, 34, Color("f8fafc"))
+	menu_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	menu_vbox.add_child(menu_title)
+
+	var menu_subtitle := Label.new()
+	menu_subtitle.text = "Prototype War Table"
+	_style_label(menu_subtitle, 18, Color("7dd3fc"))
+	menu_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	menu_vbox.add_child(menu_subtitle)
+
+	_menu_message_label = Label.new()
+	_style_label(_menu_message_label, 15, Color("e5eefc"), 54.0)
+	_menu_message_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	menu_vbox.add_child(_menu_message_label)
+
+	_continue_button = Button.new()
+	_continue_button.text = "Continue Crash Save"
+	_continue_button.pressed.connect(_on_continue_saved_match_pressed)
+	_style_button(_continue_button, Color("2563eb"))
+	menu_vbox.add_child(_continue_button)
+
+	for player_count in [4, 6, 8]:
+		var new_match_button := Button.new()
+		new_match_button.text = "New %d-Player Match" % player_count
+		new_match_button.pressed.connect(_on_new_match_selected.bind(player_count))
+		_style_button(new_match_button, Color("7c3aed"))
+		menu_vbox.add_child(new_match_button)
+
+	var close_menu_button := Button.new()
+	close_menu_button.text = "Return To Match"
+	close_menu_button.pressed.connect(_on_close_menu_pressed)
+	_style_button(close_menu_button, Color("15803d"))
+	menu_vbox.add_child(close_menu_button)
 
 
 func _make_stylebox(background: Color, border: Color, radius: int) -> StyleBoxFlat:
@@ -379,6 +469,165 @@ func _style_button(button: Button, background: Color) -> void:
 	button.add_theme_stylebox_override("disabled", _make_stylebox(Color("1f2937"), Color("334155"), 12))
 
 
+func _show_main_menu(message: String = "") -> void:
+	if _menu_overlay == null:
+		return
+
+	var resolved_message := message
+	if resolved_message.is_empty():
+		resolved_message = "Restore a crash save or launch a fresh match." if _autosave_exists() else "Choose a match size to begin."
+	_menu_message_label.text = resolved_message
+	_continue_button.visible = _autosave_exists()
+	_continue_button.disabled = not _autosave_exists()
+	_menu_overlay.visible = true
+	_update_ui()
+
+
+func _hide_main_menu() -> void:
+	if _menu_overlay == null:
+		return
+
+	_menu_overlay.visible = false
+	_update_ui()
+
+
+func _autosave_exists() -> bool:
+	return FileAccess.file_exists(AUTOSAVE_PATH)
+
+
+func _serialize_value(value: Variant) -> Variant:
+	if value is Vector2:
+		return {"__type": "Vector2", "x": value.x, "y": value.y}
+	if value is Color:
+		return {"__type": "Color", "html": value.to_html()}
+	if value is Dictionary:
+		var mapped := {}
+		for key in value.keys():
+			mapped[str(key)] = _serialize_value(value[key])
+		return mapped
+	if value is Array:
+		var mapped_array := []
+		for item in value:
+			mapped_array.append(_serialize_value(item))
+		return mapped_array
+	return value
+
+
+func _deserialize_value(value: Variant) -> Variant:
+	if value is Dictionary:
+		var mapped_value: Dictionary = value
+		var type_name := str(mapped_value.get("__type", ""))
+		if type_name == "Vector2":
+			return Vector2(float(mapped_value.get("x", 0.0)), float(mapped_value.get("y", 0.0)))
+		if type_name == "Color":
+			return Color(str(mapped_value.get("html", "ffffff")))
+
+		var restored := {}
+		for key in mapped_value.keys():
+			restored[key] = _deserialize_value(mapped_value[key])
+		return restored
+	if value is Array:
+		var restored_array := []
+		for item in value:
+			restored_array.append(_deserialize_value(item))
+		return restored_array
+	return value
+
+
+func _save_autosave() -> void:
+	if _players.is_empty() or _turn_phase == TURN_PHASE_MOVING or _is_game_over:
+		return
+
+	var payload := {
+		"autosave_version": AUTOSAVE_VERSION,
+		"board": _serialize_value(_board),
+		"players": _serialize_value(_players),
+		"property_states": _serialize_value(_property_states),
+		"mob_states": _serialize_value(_mob_states),
+		"boss_states": _serialize_value(_boss_states),
+		"current_player_index": _current_player_index,
+		"round_number": _round_number,
+		"turn_phase": _turn_phase,
+		"turn_time_left": _turn_time_left,
+		"last_roll": _last_roll,
+		"current_move_steps": _current_move_steps,
+		"major_action_used": _major_action_used,
+		"quick_action_used": _quick_action_used,
+		"force_end_turn_after_resolution": _force_end_turn_after_resolution,
+		"log_lines": _serialize_value(_log_lines),
+		"next_mob_instance_id": _next_mob_instance_id,
+		"final_round_triggered": _final_round_triggered,
+		"final_round_target_round": _final_round_target_round,
+		"winner_summary": _winner_summary,
+		"raider_bonus_claimed": _serialize_value(_raider_bonus_claimed),
+		"trickster_reroll_claimed": _serialize_value(_trickster_reroll_claimed)
+	}
+
+	var file := FileAccess.open(AUTOSAVE_PATH, FileAccess.WRITE)
+	if file == null:
+		push_warning("Failed to write autosave at %s." % AUTOSAVE_PATH)
+		return
+
+	file.store_string(JSON.stringify(payload, "\t"))
+
+
+func _load_autosave() -> bool:
+	if not _autosave_exists():
+		return false
+
+	var file := FileAccess.open(AUTOSAVE_PATH, FileAccess.READ)
+	if file == null:
+		return false
+
+	var parsed: Variant = JSON.parse_string(file.get_as_text())
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return false
+
+	var data: Dictionary = parsed
+	if int(data.get("autosave_version", 0)) != AUTOSAVE_VERSION:
+		return false
+
+	_board = _deserialize_value(data.get("board", {}))
+	_players = _deserialize_value(data.get("players", []))
+	_property_states = _deserialize_value(data.get("property_states", {}))
+	_mob_states = _deserialize_value(data.get("mob_states", {}))
+	_boss_states = _deserialize_value(data.get("boss_states", {}))
+	_current_player_index = int(data.get("current_player_index", 0))
+	_round_number = int(data.get("round_number", 1))
+	_turn_phase = str(data.get("turn_phase", TURN_PHASE_AWAIT_ROLL))
+	_turn_time_left = float(data.get("turn_time_left", 0.0))
+	_last_roll = int(data.get("last_roll", -1))
+	_current_move_steps = int(data.get("current_move_steps", 0))
+	_major_action_used = bool(data.get("major_action_used", false))
+	_quick_action_used = bool(data.get("quick_action_used", false))
+	_force_end_turn_after_resolution = bool(data.get("force_end_turn_after_resolution", false))
+	_log_lines = _deserialize_value(data.get("log_lines", []))
+	_next_mob_instance_id = int(data.get("next_mob_instance_id", 1))
+	_final_round_triggered = bool(data.get("final_round_triggered", false))
+	_final_round_target_round = int(data.get("final_round_target_round", -1))
+	_winner_summary = str(data.get("winner_summary", ""))
+	_raider_bonus_claimed = _deserialize_value(data.get("raider_bonus_claimed", {}))
+	_trickster_reroll_claimed = _deserialize_value(data.get("trickster_reroll_claimed", {}))
+	_is_game_over = false
+	_reachable_cells.clear()
+	_available_actions.clear()
+	_hovered_cell_id = ""
+	_animating_player_index = -1
+	_refresh_board_bounds()
+	if _turn_phase == TURN_PHASE_READY_TO_END:
+		_refresh_available_actions()
+	_update_ui()
+	queue_redraw()
+	return true
+
+
+func _clear_autosave() -> void:
+	if not _autosave_exists():
+		return
+
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(AUTOSAVE_PATH))
+
+
 func _load_content() -> bool:
 	var loader = ContentLoaderScript.new()
 	var rules: Variant = loader.load_json(RULES_PATH)
@@ -412,6 +661,7 @@ func _load_content() -> bool:
 
 
 func _start_new_match(player_count: int) -> void:
+	_hide_main_menu()
 	var generator = BoardGeneratorScript.new()
 	_board = generator.generate(player_count)
 	if _board.is_empty():
@@ -438,6 +688,7 @@ func _start_new_match(player_count: int) -> void:
 	_last_roll = -1
 	_current_move_steps = 0
 	_major_action_used = false
+	_quick_action_used = false
 	_force_end_turn_after_resolution = false
 	_turn_phase = ""
 	_turn_time_left = 0.0
@@ -465,6 +716,7 @@ func _start_new_match(player_count: int) -> void:
 		]
 	)
 	_start_turn()
+	_save_autosave()
 	queue_redraw()
 
 
@@ -482,11 +734,14 @@ func _build_players(player_count: int) -> Array:
 			stats[stat_name] = int(stats.get(stat_name, 0)) + int(origin["stat_bonuses"][stat_name])
 
 		var max_hp := 10 + int(stats.get("guard", 0)) * 2
+		var starter_skill_id := str(origin.get("starter_skill_id", ""))
 		built_players.append(
 			{
 				"name": "Player %d" % (player_index + 1),
 				"origin_id": str(origin.get("id", "origin")),
 				"origin_name": str(origin.get("name", "Origin")),
+				"starter_skill_id": starter_skill_id,
+				"passive_text": str(origin.get("passive", "")),
 				"signature_stat": _signature_stat_for_origin(origin),
 				"stats": stats,
 				"hp": max_hp,
@@ -496,6 +751,9 @@ func _build_players(player_count: int) -> Array:
 				"stance": starting_stance,
 				"weapon_bonus": 0,
 				"armor_bonus": 0,
+				"temporary_guard_bonus": 0,
+				"power_strike_ready": false,
+				"skill_cooldowns": {starter_skill_id: 0},
 				"cell_id": start_cell_id,
 				"board_position": _cell_world_position(start_cell_id),
 				"color": PLAYER_COLORS[player_index % PLAYER_COLORS.size()]
@@ -525,6 +783,51 @@ func _movement_bonus_for_player(player: Dictionary) -> int:
 	if mobility >= 2:
 		return 1
 	return 0
+
+
+func _skill_by_id(skill_id: String) -> Dictionary:
+	for skill_variant in _skills:
+		var skill: Dictionary = skill_variant
+		if str(skill.get("id", "")) == skill_id:
+			return skill
+	return {}
+
+
+func _current_player_starter_skill() -> Dictionary:
+	if _players.is_empty():
+		return {}
+
+	return _skill_by_id(str(_players[_current_player_index].get("starter_skill_id", "")))
+
+
+func _player_skill_cooldown(player_index: int, skill_id: String) -> int:
+	if player_index < 0 or player_index >= _players.size() or skill_id.is_empty():
+		return 0
+
+	var cooldowns: Dictionary = _players[player_index].get("skill_cooldowns", {})
+	return int(cooldowns.get(skill_id, 0))
+
+
+func _set_player_skill_cooldown(player_index: int, skill_id: String, turns: int) -> void:
+	if player_index < 0 or player_index >= _players.size() or skill_id.is_empty():
+		return
+
+	var cooldowns: Dictionary = _players[player_index].get("skill_cooldowns", {}).duplicate(true)
+	cooldowns[skill_id] = maxi(0, turns)
+	_players[player_index]["skill_cooldowns"] = cooldowns
+
+
+func _prepare_player_turn(player_index: int) -> void:
+	if player_index < 0 or player_index >= _players.size():
+		return
+
+	_players[player_index]["temporary_guard_bonus"] = 0
+	_players[player_index]["power_strike_ready"] = false
+
+	var cooldowns: Dictionary = _players[player_index].get("skill_cooldowns", {}).duplicate(true)
+	for skill_id in cooldowns.keys():
+		cooldowns[skill_id] = maxi(0, int(cooldowns[skill_id]) - 1)
+	_players[player_index]["skill_cooldowns"] = cooldowns
 
 
 func _assign_bosses_to_board() -> void:
@@ -582,10 +885,12 @@ func _start_turn() -> void:
 	_last_roll = -1
 	_current_move_steps = 0
 	_major_action_used = false
+	_quick_action_used = false
 	_force_end_turn_after_resolution = false
 	_reachable_cells.clear()
 	_available_actions.clear()
 	_animating_player_index = -1
+	_prepare_player_turn(_current_player_index)
 
 	var player: Dictionary = _players[_current_player_index]
 	_append_log(
@@ -600,6 +905,7 @@ func _start_turn() -> void:
 	if _resolve_start_turn_mob_encounter():
 		return
 	_update_ui()
+	_save_autosave()
 	queue_redraw()
 
 
@@ -627,13 +933,32 @@ func _on_end_turn_pressed() -> void:
 
 
 func _on_new_board_pressed() -> void:
-	_start_new_match(_players.size() if not _players.is_empty() else DEFAULT_PLAYER_COUNT)
+	_show_main_menu("Resume the current match or start a fresh war table.")
+
+
+func _on_continue_saved_match_pressed() -> void:
+	if _load_autosave():
+		_hide_main_menu()
+	else:
+		_show_main_menu("No valid crash save was found. Start a new match instead.")
+
+
+func _on_new_match_selected(player_count: int) -> void:
+	_hide_main_menu()
+	_start_new_match(player_count)
+
+
+func _on_close_menu_pressed() -> void:
+	if _players.is_empty():
+		return
+
+	_hide_main_menu()
 
 
 func _on_action_button_pressed(button_index: int) -> void:
 	if button_index < 0 or button_index >= _available_actions.size():
 		return
-	if _turn_phase != TURN_PHASE_READY_TO_END or _major_action_used:
+	if _turn_phase != TURN_PHASE_READY_TO_END:
 		return
 
 	var action: Dictionary = _available_actions[button_index]
@@ -851,6 +1176,7 @@ func _resolve_destination(cell_id: String) -> void:
 		_end_turn()
 	else:
 		_update_ui()
+		_save_autosave()
 		queue_redraw()
 
 
@@ -1101,6 +1427,7 @@ func _draw_cells() -> void:
 		draw_circle(screen_position + Vector2(0.0, 3.0), CELL_RADIUS, Color(0.0, 0.0, 0.0, 0.25))
 		draw_circle(screen_position, CELL_RADIUS, base_color)
 		draw_circle(screen_position, CELL_RADIUS + 2.0, base_color.lightened(0.3), false, 2.0)
+		_draw_cell_icon(screen_position, cell_type)
 		_draw_property_state_indicator(cell_id, screen_position)
 		_draw_boss_state_indicator(cell_id, screen_position)
 
@@ -1112,6 +1439,56 @@ func _draw_cells() -> void:
 	if not _reachable_cells.is_empty():
 		var current_player_cell := str(_players[_current_player_index].get("cell_id", ""))
 		draw_circle(_world_to_screen(_cell_world_position(current_player_cell)), CELL_RADIUS + 10.0, Color("93c5fd"), false, 2.0)
+
+
+func _draw_cell_icon(screen_position: Vector2, cell_type: String) -> void:
+	var icon_color := Color("f8fafc")
+	match cell_type:
+		"shrine":
+			draw_line(screen_position + Vector2(0.0, -7.0), screen_position + Vector2(0.0, 7.0), icon_color, 1.8)
+			draw_line(screen_position + Vector2(-7.0, 0.0), screen_position + Vector2(7.0, 0.0), icon_color, 1.8)
+			draw_line(screen_position + Vector2(-5.0, 0.0), screen_position + Vector2(0.0, -5.0), icon_color, 1.6)
+			draw_line(screen_position + Vector2(5.0, 0.0), screen_position + Vector2(0.0, -5.0), icon_color, 1.6)
+			draw_line(screen_position + Vector2(-5.0, 0.0), screen_position + Vector2(0.0, 5.0), icon_color, 1.6)
+			draw_line(screen_position + Vector2(5.0, 0.0), screen_position + Vector2(0.0, 5.0), icon_color, 1.6)
+		"shop":
+			draw_rect(Rect2(screen_position + Vector2(-5.0, -2.0), Vector2(10.0, 8.0)), icon_color, false, 1.5)
+			draw_line(screen_position + Vector2(-3.0, -2.0), screen_position + Vector2(-1.0, -6.0), icon_color, 1.5)
+			draw_line(screen_position + Vector2(3.0, -2.0), screen_position + Vector2(1.0, -6.0), icon_color, 1.5)
+			draw_line(screen_position + Vector2(-1.0, -6.0), screen_position + Vector2(1.0, -6.0), icon_color, 1.5)
+		"event":
+			draw_line(screen_position + Vector2(-6.0, 0.0), screen_position + Vector2(6.0, 0.0), icon_color, 1.8)
+			draw_line(screen_position + Vector2(0.0, -6.0), screen_position + Vector2(0.0, 6.0), icon_color, 1.8)
+			draw_line(screen_position + Vector2(-4.0, -4.0), screen_position + Vector2(4.0, 4.0), icon_color, 1.6)
+			draw_line(screen_position + Vector2(-4.0, 4.0), screen_position + Vector2(4.0, -4.0), icon_color, 1.6)
+		"casino":
+			draw_rect(Rect2(screen_position + Vector2(-5.0, -5.0), Vector2(10.0, 10.0)), icon_color, false, 1.4)
+			draw_circle(screen_position + Vector2(-2.5, -2.5), 1.1, icon_color)
+			draw_circle(screen_position + Vector2(2.5, 0.0), 1.1, icon_color)
+			draw_circle(screen_position + Vector2(-2.5, 2.5), 1.1, icon_color)
+		"property":
+			draw_rect(Rect2(screen_position + Vector2(-5.0, -1.0), Vector2(10.0, 7.0)), icon_color, false, 1.5)
+			draw_line(screen_position + Vector2(-6.0, -1.0), screen_position + Vector2(0.0, -6.0), icon_color, 1.5)
+			draw_line(screen_position + Vector2(6.0, -1.0), screen_position + Vector2(0.0, -6.0), icon_color, 1.5)
+			draw_line(screen_position + Vector2(-1.5, 6.0), screen_position + Vector2(-1.5, 1.0), icon_color, 1.4)
+			draw_line(screen_position + Vector2(1.5, 6.0), screen_position + Vector2(1.5, 1.0), icon_color, 1.4)
+		"mob_den":
+			draw_line(screen_position + Vector2(-5.5, 5.0), screen_position + Vector2(-1.5, -5.0), icon_color, 1.7)
+			draw_line(screen_position + Vector2(-0.5, 5.0), screen_position + Vector2(2.5, -5.0), icon_color, 1.7)
+			draw_line(screen_position + Vector2(4.5, 5.0), screen_position + Vector2(6.0, -2.0), icon_color, 1.7)
+		"boss_entrance":
+			draw_line(screen_position + Vector2(-6.0, 5.0), screen_position + Vector2(-6.0, 0.0), icon_color, 1.7)
+			draw_line(screen_position + Vector2(6.0, 5.0), screen_position + Vector2(6.0, 0.0), icon_color, 1.7)
+			draw_line(screen_position + Vector2(-6.0, 5.0), screen_position + Vector2(6.0, 5.0), icon_color, 1.7)
+			draw_line(screen_position + Vector2(-6.0, 0.0), screen_position + Vector2(-2.0, -6.0), icon_color, 1.7)
+			draw_line(screen_position + Vector2(-2.0, -6.0), screen_position + Vector2(0.0, -1.0), icon_color, 1.7)
+			draw_line(screen_position + Vector2(0.0, -1.0), screen_position + Vector2(2.0, -6.0), icon_color, 1.7)
+			draw_line(screen_position + Vector2(2.0, -6.0), screen_position + Vector2(6.0, 0.0), icon_color, 1.7)
+		"portal":
+			draw_circle(screen_position, 5.8, icon_color, false, 1.5)
+			draw_circle(screen_position + Vector2(0.0, 0.5), 2.8, icon_color, false, 1.2)
+		_:
+			draw_circle(screen_position, 2.2, icon_color)
 
 
 func _draw_property_state_indicator(cell_id: String, screen_position: Vector2) -> void:
@@ -1255,7 +1632,13 @@ func _phase_description() -> String:
 		TURN_PHASE_MOVING:
 			return "Resolving movement and landing effects."
 		TURN_PHASE_READY_TO_END:
-			return "Turn resolved. End the turn to pass play."
+			if not _major_action_used and not _quick_action_used:
+				return "Turn resolved. Spend your major or quick action, then end the turn."
+			if not _major_action_used:
+				return "Quick action spent. One major action remains."
+			if not _quick_action_used:
+				return "Major action spent. A quick action can still be used."
+			return "All action windows spent. End the turn to pass play."
 		_:
 			return "Preparing match state."
 
@@ -1277,10 +1660,14 @@ func _update_ui() -> void:
 		return
 
 	var current_player: Dictionary = _players[_current_player_index]
+	var starter_skill_id := str(current_player.get("starter_skill_id", ""))
+	var starter_skill: Dictionary = _skill_by_id(starter_skill_id)
+	var starter_skill_name := str(starter_skill.get("name", "Starter Skill"))
+	var starter_skill_cooldown := _player_skill_cooldown(_current_player_index, starter_skill_id)
 	_title_label.text = "%s" % _rules.get("project_name", "Board Prototype")
 	_status_label.text = _match_status_text()
 	_turn_label.text = (
-		"Round %d\n%s (%s)\nHP %d/%d   Gold %d   Renown %d\nMight %d   Guard %d   Arcana %d\nFortune %d   Mobility %d\nGear Atk %+d   Gear Def %+d" %
+		"Round %d\n%s (%s)\nHP %d/%d   Gold %d   Renown %d\nMight %d   Guard %d   Arcana %d\nFortune %d   Mobility %d\nGear Atk %+d   Gear Def %+d\nSkill: %s%s" %
 		[
 			_round_number,
 			current_player.get("name", "Player"),
@@ -1295,7 +1682,9 @@ func _update_ui() -> void:
 			current_player.get("stats", {}).get("fortune", 0),
 			current_player.get("stats", {}).get("mobility", 0),
 			current_player.get("weapon_bonus", 0),
-			current_player.get("armor_bonus", 0)
+			current_player.get("armor_bonus", 0),
+			starter_skill_name,
+			" (CD %d)" % starter_skill_cooldown if starter_skill_cooldown > 0 else ""
 		]
 	)
 	_timer_label.text = "Turn Timer: %.1fs" % _turn_time_left
@@ -1410,14 +1799,23 @@ func _update_action_buttons() -> void:
 			continue
 
 		var action: Dictionary = _available_actions[button_index]
+		var budget_type := str(action.get("budget_type", "major"))
 		action_button.visible = true
-		action_button.disabled = _turn_phase != TURN_PHASE_READY_TO_END or _major_action_used
+		action_button.disabled = (
+			_turn_phase != TURN_PHASE_READY_TO_END
+			or (budget_type == "major" and _major_action_used)
+			or (budget_type == "quick" and _quick_action_used)
+		)
+		if budget_type == "quick":
+			_style_button(action_button, Color("0f766e"))
+		else:
+			_style_button(action_button, Color("374151"))
 		action_button.text = str(action.get("label", "Action"))
 
 
 func _refresh_available_actions() -> void:
 	_available_actions.clear()
-	if _players.is_empty() or _major_action_used or _turn_phase != TURN_PHASE_READY_TO_END:
+	if _players.is_empty() or _turn_phase != TURN_PHASE_READY_TO_END:
 		return
 
 	var player: Dictionary = _players[_current_player_index]
@@ -1425,63 +1823,223 @@ func _refresh_available_actions() -> void:
 	var cell: Dictionary = _board.get("cells", {}).get(cell_id, {})
 	var cell_type := str(cell.get("type", "neutral"))
 	var opponents := _other_player_indices_on_cell(cell_id, _current_player_index)
+	var starter_skill_id := str(player.get("starter_skill_id", ""))
+	var starter_skill_cooldown := _player_skill_cooldown(_current_player_index, starter_skill_id)
 
-	for opponent_index in opponents:
-		_available_actions.append(
-			{
-				"id": "attack_player",
-				"label": "Attack %s" % _players[opponent_index].get("name", "Player"),
-				"target_player_index": opponent_index
-			}
-		)
+	if not _major_action_used:
+		for opponent_index in opponents:
+			_available_actions.append(
+				{
+					"id": "attack_player",
+					"label": "Attack %s" % _players[opponent_index].get("name", "Player"),
+					"target_player_index": opponent_index,
+					"budget_type": "major"
+				}
+			)
 
-	match cell_type:
-		"property":
-			var property_state: Dictionary = _property_states.get(cell_id, {})
-			var owner_index := int(property_state.get("owner_index", -1))
-			var level := int(property_state.get("level", 0))
-			var claim_cost := int(_rules.get("property_levels", {}).get("outpost", {}).get("claim_cost", 6))
-			if owner_index == -1 and int(player.get("gold", 0)) >= claim_cost:
-				_available_actions.append({"id": "claim_property", "label": "Claim Outpost"})
-			elif owner_index == _current_player_index and level < 3:
-				var upgrade_cost := _property_upgrade_cost(level)
-				if int(player.get("gold", 0)) >= upgrade_cost:
-					_available_actions.append({"id": "upgrade_property", "label": "Upgrade Property"})
-			elif owner_index >= 0 and owner_index != _current_player_index:
-				_available_actions.append({"id": "raid_property", "label": "Raid Property"})
-		"shrine":
-			if int(player.get("hp", 0)) < int(player.get("max_hp", 0)) and int(player.get("gold", 0)) >= 3:
-				_available_actions.append({"id": "heal_at_shrine", "label": "Heal 6 HP"})
-			var train_cost := _training_cost_for_player(player)
-			if train_cost > 0 and int(player.get("gold", 0)) >= train_cost:
-				_available_actions.append({"id": "train_signature_stat", "label": "Train Signature Stat"})
-		"shop":
-			if int(player.get("gold", 0)) >= 5 and int(player.get("weapon_bonus", 0)) < 2:
-				_available_actions.append({"id": "buy_weapon_upgrade", "label": "Sharpen Blade"})
-			if int(player.get("gold", 0)) >= 5 and int(player.get("armor_bonus", 0)) < 2:
-				_available_actions.append({"id": "buy_armor_upgrade", "label": "Reinforce Mail"})
-		"casino":
-			if int(player.get("gold", 0)) >= 3:
-				_available_actions.append({"id": "casino_coin_flip", "label": "Coin Flip"})
-		"boss_entrance":
-			var boss_state: Dictionary = _boss_states.get(cell_id, {})
-			if not bool(boss_state.get("cleared", false)):
-				_available_actions.append(
-					{
-						"id": "challenge_boss",
-						"label": "Fight %s" % boss_state.get("name", "Boss")
-					}
-				)
+		match cell_type:
+			"property":
+				var property_state: Dictionary = _property_states.get(cell_id, {})
+				var owner_index := int(property_state.get("owner_index", -1))
+				var level := int(property_state.get("level", 0))
+				var claim_cost := int(_rules.get("property_levels", {}).get("outpost", {}).get("claim_cost", 6))
+				if owner_index == -1 and int(player.get("gold", 0)) >= claim_cost:
+					_available_actions.append({"id": "claim_property", "label": "Claim Outpost", "budget_type": "major"})
+				elif owner_index == _current_player_index and level < 3:
+					var upgrade_cost := _property_upgrade_cost(level)
+					if int(player.get("gold", 0)) >= upgrade_cost:
+						_available_actions.append({"id": "upgrade_property", "label": "Upgrade Property", "budget_type": "major"})
+				elif owner_index >= 0 and owner_index != _current_player_index:
+					_available_actions.append({"id": "raid_property", "label": "Raid Property", "budget_type": "major"})
+			"shrine":
+				if int(player.get("hp", 0)) < int(player.get("max_hp", 0)) and int(player.get("gold", 0)) >= 3:
+					_available_actions.append({"id": "heal_at_shrine", "label": "Heal 6 HP", "budget_type": "major"})
+				var train_cost := _training_cost_for_player(player)
+				if train_cost > 0 and int(player.get("gold", 0)) >= train_cost:
+					_available_actions.append({"id": "train_signature_stat", "label": "Train Signature Stat", "budget_type": "major"})
+			"shop":
+				if int(player.get("gold", 0)) >= 5 and int(player.get("weapon_bonus", 0)) < 2:
+					_available_actions.append({"id": "buy_weapon_upgrade", "label": "Sharpen Blade", "budget_type": "major"})
+				if int(player.get("gold", 0)) >= 5 and int(player.get("armor_bonus", 0)) < 2:
+					_available_actions.append({"id": "buy_armor_upgrade", "label": "Reinforce Mail", "budget_type": "major"})
+			"casino":
+				if int(player.get("gold", 0)) >= 3:
+					_available_actions.append({"id": "casino_coin_flip", "label": "Coin Flip", "budget_type": "major"})
+			"boss_entrance":
+				var boss_state: Dictionary = _boss_states.get(cell_id, {})
+				if not bool(boss_state.get("cleared", false)):
+					_available_actions.append(
+						{
+							"id": "challenge_boss",
+							"label": "Fight %s" % boss_state.get("name", "Boss"),
+							"budget_type": "major"
+						}
+					)
+
+		if starter_skill_id == "arc_bolt" and starter_skill_cooldown <= 0:
+			for arc_action in _arc_bolt_actions_for_player(_current_player_index):
+				_available_actions.append(arc_action)
+
+	if not _quick_action_used and starter_skill_cooldown <= 0:
+		match starter_skill_id:
+			"power_strike":
+				if not bool(player.get("power_strike_ready", false)) and _current_turn_has_physical_target(cell_id):
+					_available_actions.append({"id": "power_strike", "label": "Quick: Power Strike", "budget_type": "quick"})
+			"hold_fast":
+				if int(player.get("temporary_guard_bonus", 0)) <= 0:
+					_available_actions.append({"id": "hold_fast", "label": "Quick: Hold Fast", "budget_type": "quick"})
+			"shadowstep":
+				if _major_action_used:
+					for destination_cell_id in _shadowstep_destination_options(cell_id):
+						_available_actions.append(
+							{
+								"id": "shadowstep",
+								"label": "Quick: Step to %s" % _cell_name(destination_cell_id),
+								"target_cell_id": destination_cell_id,
+								"budget_type": "quick"
+							}
+						)
+
+
+func _current_turn_has_physical_target(cell_id: String) -> bool:
+	if not _other_player_indices_on_cell(cell_id, _current_player_index).is_empty():
+		return true
+	if not _mob_id_on_cell(cell_id).is_empty():
+		return true
+	if _property_states.has(cell_id):
+		var property_state: Dictionary = _property_states[cell_id]
+		var owner_index := int(property_state.get("owner_index", -1))
+		if owner_index >= 0 and owner_index != _current_player_index:
+			return true
+	var boss_state: Dictionary = _boss_states.get(cell_id, {})
+	return not boss_state.is_empty() and not bool(boss_state.get("cleared", false))
+
+
+func _cells_within_steps(start_cell_id: String, max_steps: int) -> Dictionary:
+	var result := _build_reachable_cells(start_cell_id, max_steps)
+	result[start_cell_id] = {"distance": 0, "path": [start_cell_id]}
+	return result
+
+
+func _arc_bolt_actions_for_player(player_index: int) -> Array:
+	var actions := []
+	if player_index < 0 or player_index >= _players.size():
+		return actions
+
+	var player: Dictionary = _players[player_index]
+	var cells_in_range: Dictionary = _cells_within_steps(str(player.get("cell_id", "")), 3)
+	for cell_id in cells_in_range.keys():
+		for opponent_index in _other_player_indices_on_cell(str(cell_id), player_index):
+			actions.append(
+				{
+					"id": "arc_bolt_player",
+					"label": "Arc Bolt %s" % _players[opponent_index].get("name", "Player"),
+					"target_player_index": opponent_index,
+					"budget_type": "major"
+				}
+			)
+
+		for mob_id in _mob_ids_on_cell(str(cell_id)):
+			actions.append(
+				{
+					"id": "arc_bolt_mob",
+					"label": "Arc Bolt %s" % _mob_states[mob_id].get("name", "Mob"),
+					"target_mob_id": mob_id,
+					"budget_type": "major"
+				}
+			)
+
+		var boss_state: Dictionary = _boss_states.get(str(cell_id), {})
+		if not boss_state.is_empty() and not bool(boss_state.get("cleared", false)):
+			actions.append(
+				{
+					"id": "arc_bolt_boss",
+					"label": "Arc Bolt %s" % boss_state.get("name", "Boss"),
+					"target_boss_cell_id": str(cell_id),
+					"budget_type": "major"
+				}
+			)
+
+	if actions.size() > 4:
+		actions = actions.slice(0, 4)
+	return actions
+
+
+func _shadowstep_destination_options(start_cell_id: String) -> Array:
+	var destinations := []
+	var scored_destinations := []
+	var reachable: Dictionary = _build_reachable_cells(start_cell_id, 2)
+	for cell_id_variant in reachable.keys():
+		var cell_id := str(cell_id_variant)
+		if cell_id == start_cell_id:
+			continue
+		var cell: Dictionary = _board.get("cells", {}).get(cell_id, {})
+		var cell_type := str(cell.get("type", "neutral"))
+		var score := 0
+		match cell_type:
+			"property":
+				score = 5
+			"shop", "shrine":
+				score = 4
+			"event", "casino":
+				score = 3
+			"boss_entrance", "portal":
+				score = 2
+			_:
+				score = 1
+		if not _other_player_indices_on_cell(cell_id, _current_player_index).is_empty():
+			score += 2
+		scored_destinations.append({"cell_id": cell_id, "score": score, "distance": int(reachable[cell_id].get("distance", 0))})
+
+	scored_destinations.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if int(a.get("score", 0)) != int(b.get("score", 0)):
+			return int(a.get("score", 0)) > int(b.get("score", 0))
+		if int(a.get("distance", 0)) != int(b.get("distance", 0)):
+			return int(a.get("distance", 0)) < int(b.get("distance", 0))
+		return str(a.get("cell_id", "")) < str(b.get("cell_id", ""))
+	)
+
+	for scored in scored_destinations:
+		destinations.append(str(scored.get("cell_id", "")))
+		if destinations.size() >= 4:
+			break
+
+	return destinations
 
 
 func _perform_major_action(action: Dictionary) -> void:
 	var action_id := str(action.get("id", ""))
+	var budget_type := str(action.get("budget_type", "major"))
 	var player: Dictionary = _players[_current_player_index]
 	var cell_id := str(player.get("cell_id", ""))
 	var player_name := str(player.get("name", "Player"))
 	var consumed := false
 
 	match action_id:
+		"power_strike":
+			_players[_current_player_index]["power_strike_ready"] = true
+			_set_player_skill_cooldown(_current_player_index, str(player.get("starter_skill_id", "")), int(_skill_by_id(str(player.get("starter_skill_id", ""))).get("cooldown", 2)))
+			_append_log("%s primes Power Strike for the next physical hit this turn." % player_name)
+			consumed = true
+		"hold_fast":
+			_players[_current_player_index]["temporary_guard_bonus"] = 2
+			_set_player_skill_cooldown(_current_player_index, str(player.get("starter_skill_id", "")), int(_skill_by_id(str(player.get("starter_skill_id", ""))).get("cooldown", 3)))
+			_append_log("%s braces with Hold Fast and gains +2 Guard until the next turn." % player_name)
+			consumed = true
+		"shadowstep":
+			var destination_cell_id := str(action.get("target_cell_id", ""))
+			if not destination_cell_id.is_empty():
+				_players[_current_player_index]["cell_id"] = destination_cell_id
+				_players[_current_player_index]["board_position"] = _cell_world_position(destination_cell_id)
+				_set_player_skill_cooldown(_current_player_index, str(player.get("starter_skill_id", "")), int(_skill_by_id(str(player.get("starter_skill_id", ""))).get("cooldown", 3)))
+				_append_log("%s slips through the lanes and shadowsteps to %s." % [player_name, _cell_name(destination_cell_id)])
+				consumed = true
+		"arc_bolt_player":
+			consumed = _perform_arc_bolt_on_player(int(action.get("target_player_index", -1)))
+		"arc_bolt_mob":
+			consumed = _perform_arc_bolt_on_mob(str(action.get("target_mob_id", "")))
+		"arc_bolt_boss":
+			consumed = _perform_arc_bolt_on_boss(str(action.get("target_boss_cell_id", "")))
 		"attack_player":
 			consumed = _perform_player_attack(int(action.get("target_player_index", -1)))
 		"claim_property":
@@ -1545,9 +2103,13 @@ func _perform_major_action(action: Dictionary) -> void:
 	if not consumed:
 		return
 
-	_major_action_used = true
+	if budget_type == "quick":
+		_quick_action_used = true
+	else:
+		_major_action_used = true
 	_refresh_available_actions()
 	_update_ui()
+	_save_autosave()
 	queue_redraw()
 	if _force_end_turn_after_resolution:
 		_force_end_turn_after_resolution = false
@@ -1566,7 +2128,8 @@ func _perform_property_raid(cell_id: String) -> bool:
 
 	var owner: Dictionary = _players[owner_index]
 	var player_name := str(player.get("name", "Player"))
-	var raid_total := _rng.randi_range(1, 6) + int(player.get("stats", {}).get("might", 0)) + int(player.get("weapon_bonus", 0))
+	var raid_bonus: Dictionary = _consume_power_strike_bonus(_current_player_index, true)
+	var raid_total := _rng.randi_range(1, 6) + int(player.get("stats", {}).get("might", 0)) + int(player.get("weapon_bonus", 0)) + int(raid_bonus.get("attack_bonus", 0))
 	var defense_total := _rng.randi_range(1, 6) + _property_defense_rating(int(state.get("level", 0)), owner_index)
 	var margin := raid_total - defense_total
 	if margin <= 0:
@@ -1659,6 +2222,123 @@ func _perform_casino_coin_flip() -> bool:
 	return true
 
 
+func _consume_power_strike_bonus(player_index: int, is_physical: bool) -> Dictionary:
+	if not is_physical or player_index < 0 or player_index >= _players.size():
+		return {"attack_bonus": 0, "damage_bonus": 0}
+	if not bool(_players[player_index].get("power_strike_ready", false)):
+		return {"attack_bonus": 0, "damage_bonus": 0}
+
+	_players[player_index]["power_strike_ready"] = false
+	return {"attack_bonus": 2, "damage_bonus": 1}
+
+
+func _player_guard_total(player: Dictionary) -> int:
+	return int(player.get("stats", {}).get("guard", 0)) + int(player.get("armor_bonus", 0)) + int(player.get("temporary_guard_bonus", 0))
+
+
+func _perform_arc_bolt_on_player(target_player_index: int) -> bool:
+	if target_player_index < 0 or target_player_index >= _players.size():
+		return false
+	if _graph_distance_between_players(_current_player_index, target_player_index) > 3:
+		return false
+
+	var attacker: Dictionary = _players[_current_player_index]
+	var defender: Dictionary = _players[target_player_index]
+	var attack_total := _rng.randi_range(1, 6) + int(attacker.get("stats", {}).get("arcana", 0)) + 1
+	var defense_total := _rng.randi_range(1, 6) + _player_guard_total(defender)
+	var damage := maxi(1, attack_total - defense_total + 2)
+	_apply_damage_to_player(target_player_index, damage)
+	_set_player_skill_cooldown(_current_player_index, str(attacker.get("starter_skill_id", "")), int(_skill_by_id(str(attacker.get("starter_skill_id", ""))).get("cooldown", 2)))
+	_append_log("%s hurls Arc Bolt at %s for %d damage." % [attacker.get("name", "Player"), defender.get("name", "Player"), damage])
+	if int(_players[target_player_index].get("hp", 0)) <= 0:
+		_handle_player_defeat(_current_player_index, target_player_index)
+	return true
+
+
+func _perform_arc_bolt_on_mob(mob_id: String) -> bool:
+	if not _mob_states.has(mob_id):
+		return false
+	if _graph_distance_from_current_player(str(_mob_states[mob_id].get("cell_id", ""))) > 3:
+		return false
+
+	var attacker: Dictionary = _players[_current_player_index]
+	var mob_state: Dictionary = _mob_states[mob_id]
+	var attack_total := _rng.randi_range(1, 6) + int(attacker.get("stats", {}).get("arcana", 0)) + 1
+	var defense_total := _rng.randi_range(1, 6) + _monster_defense_value(mob_state)
+	var damage := maxi(1, attack_total - defense_total + 2)
+	mob_state["hp"] = int(mob_state.get("hp", 0)) - damage
+	_set_player_skill_cooldown(_current_player_index, str(attacker.get("starter_skill_id", "")), int(_skill_by_id(str(attacker.get("starter_skill_id", ""))).get("cooldown", 2)))
+	_append_log("%s zaps %s for %d damage with Arc Bolt." % [attacker.get("name", "Player"), mob_state.get("name", "Mob"), damage])
+	if int(mob_state.get("hp", 0)) <= 0:
+		_players[_current_player_index]["gold"] = int(_players[_current_player_index].get("gold", 0)) + int(mob_state.get("reward_gold", 2))
+		_grant_renown(_current_player_index, int(mob_state.get("reward_renown", 0)))
+		_append_log("%s collapsed under the spell." % mob_state.get("name", "Mob"))
+		_mob_states.erase(mob_id)
+	else:
+		_mob_states[mob_id] = mob_state
+	return true
+
+
+func _perform_arc_bolt_on_boss(cell_id: String) -> bool:
+	var boss_state: Dictionary = _boss_states.get(cell_id, {})
+	if boss_state.is_empty() or bool(boss_state.get("cleared", false)):
+		return false
+	if _graph_distance_from_current_player(cell_id) > 3:
+		return false
+
+	var attacker: Dictionary = _players[_current_player_index]
+	var attack_total := _rng.randi_range(1, 6) + int(attacker.get("stats", {}).get("arcana", 0)) + 1
+	var defense_total := _rng.randi_range(1, 6) + _monster_defense_value(boss_state)
+	var damage := maxi(1, attack_total - defense_total + 2)
+	boss_state["hp"] = int(boss_state.get("hp", 0)) - damage
+	_set_player_skill_cooldown(_current_player_index, str(attacker.get("starter_skill_id", "")), int(_skill_by_id(str(attacker.get("starter_skill_id", ""))).get("cooldown", 2)))
+	_append_log("%s lashes %s with Arc Bolt for %d damage." % [attacker.get("name", "Player"), boss_state.get("name", "Boss"), damage])
+	if int(boss_state.get("hp", 0)) <= 0:
+		_players[_current_player_index]["gold"] = int(_players[_current_player_index].get("gold", 0)) + int(boss_state.get("reward_gold", 6))
+		_grant_renown(_current_player_index, int(boss_state.get("reward_renown", 4)))
+		boss_state["cleared"] = true
+		boss_state["hp"] = 0
+		_append_log("%s is blasted apart, and the dungeon reward is yours." % boss_state.get("name", "Boss"))
+	_boss_states[cell_id] = boss_state
+	return true
+
+
+func _graph_distance_from_current_player(target_cell_id: String) -> int:
+	return _graph_distance_between_cells(str(_players[_current_player_index].get("cell_id", "")), target_cell_id)
+
+
+func _graph_distance_between_players(left_player_index: int, right_player_index: int) -> int:
+	if left_player_index < 0 or left_player_index >= _players.size() or right_player_index < 0 or right_player_index >= _players.size():
+		return 999
+	return _graph_distance_between_cells(str(_players[left_player_index].get("cell_id", "")), str(_players[right_player_index].get("cell_id", "")))
+
+
+func _graph_distance_between_cells(start_cell_id: String, target_cell_id: String) -> int:
+	if start_cell_id == target_cell_id:
+		return 0
+	var adjacency: Dictionary = _board.get("adjacency", {})
+	if not adjacency.has(start_cell_id) or not adjacency.has(target_cell_id):
+		return 999
+
+	var distances := {start_cell_id: 0}
+	var queue := [start_cell_id]
+	var queue_index := 0
+	while queue_index < queue.size():
+		var current_cell_id := str(queue[queue_index])
+		queue_index += 1
+		var current_distance := int(distances[current_cell_id])
+		for neighbor_variant in adjacency.get(current_cell_id, []):
+			var neighbor_id := str(neighbor_variant)
+			if distances.has(neighbor_id):
+				continue
+			distances[neighbor_id] = current_distance + 1
+			if neighbor_id == target_cell_id:
+				return int(distances[neighbor_id])
+			queue.append(neighbor_id)
+
+	return 999
+
+
 func _perform_player_attack(target_player_index: int) -> bool:
 	if target_player_index < 0 or target_player_index >= _players.size():
 		return false
@@ -1668,7 +2348,7 @@ func _perform_player_attack(target_player_index: int) -> bool:
 	if str(attacker.get("cell_id", "")) != str(defender.get("cell_id", "")):
 		return false
 
-	var attack_damage := _roll_player_damage(attacker, defender)
+	var attack_damage := _roll_player_damage(_current_player_index, target_player_index, true)
 	_apply_damage_to_player(target_player_index, attack_damage)
 	_append_log(
 		"%s strikes %s for %d damage." %
@@ -1678,7 +2358,7 @@ func _perform_player_attack(target_player_index: int) -> bool:
 		_handle_player_defeat(_current_player_index, target_player_index)
 		return true
 
-	var counter_damage := _roll_player_damage(_players[target_player_index], _players[_current_player_index])
+	var counter_damage := _roll_player_damage(target_player_index, _current_player_index, true)
 	_apply_damage_to_player(_current_player_index, counter_damage)
 	_append_log(
 		"%s counters %s for %d damage." %
@@ -1702,7 +2382,7 @@ func _perform_boss_challenge() -> bool:
 	var exchange_count := int(boss_state.get("exchange_count", 3))
 
 	for exchange_index in range(exchange_count):
-		var player_damage := _roll_player_vs_monster_damage(_players[_current_player_index], boss_state)
+		var player_damage := _roll_player_vs_monster_damage(_current_player_index, boss_state)
 		boss_state["hp"] = int(boss_state.get("hp", 0)) - player_damage
 		_append_log("%s hits %s for %d damage." % [player_name, boss_name, player_damage])
 		if int(boss_state.get("hp", 0)) <= 0:
@@ -1854,6 +2534,7 @@ func _finish_match() -> void:
 		winner.get("gold", 0)
 	]
 	_append_log("Match over: %s" % _winner_summary)
+	_clear_autosave()
 	_update_ui()
 
 
@@ -1934,7 +2615,7 @@ func _resolve_mob_combat(player_index: int, mob_id: String) -> void:
 	var mob_state: Dictionary = _mob_states[mob_id]
 	var exchange_count := int(mob_state.get("exchange_count", 2))
 	for exchange_index in range(exchange_count):
-		var player_damage := _roll_player_vs_monster_damage(_players[player_index], mob_state)
+		var player_damage := _roll_player_vs_monster_damage(player_index, mob_state)
 		mob_state["hp"] = int(mob_state.get("hp", 0)) - player_damage
 		_append_log("%s hits %s for %d damage." % [player.get("name", "Player"), mob_state.get("name", "Mob"), player_damage])
 		if int(mob_state.get("hp", 0)) <= 0:
@@ -1977,25 +2658,30 @@ func _handle_player_defeat(winner_index: int, loser_index: int) -> void:
 		_force_end_turn_after_resolution = true
 
 
-func _roll_player_damage(attacker: Dictionary, defender: Dictionary) -> int:
-	var attack_total := _rng.randi_range(1, 6) + int(attacker.get("stats", {}).get("might", 0)) + int(attacker.get("weapon_bonus", 0))
-	var defense_total := _rng.randi_range(1, 6) + int(defender.get("stats", {}).get("guard", 0)) + int(defender.get("armor_bonus", 0))
-	return maxi(1, attack_total - defense_total + int(_rules.get("combat", {}).get("base_damage_bonus", 2)))
+func _roll_player_damage(attacker_index: int, defender_index: int, is_physical: bool) -> int:
+	var attacker: Dictionary = _players[attacker_index]
+	var defender: Dictionary = _players[defender_index]
+	var attack_bonus: Dictionary = _consume_power_strike_bonus(attacker_index, is_physical)
+	var attack_total := _rng.randi_range(1, 6) + int(attacker.get("stats", {}).get("might", 0)) + int(attacker.get("weapon_bonus", 0)) + int(attack_bonus.get("attack_bonus", 0))
+	var defense_total := _rng.randi_range(1, 6) + _player_guard_total(defender)
+	return maxi(1, attack_total - defense_total + int(_rules.get("combat", {}).get("base_damage_bonus", 2)) + int(attack_bonus.get("damage_bonus", 0)))
 
 
-func _roll_player_vs_monster_damage(player: Dictionary, monster_state: Dictionary) -> int:
-	var attack_stat: int = int(max(
-		int(player.get("stats", {}).get("might", 0)) + int(player.get("weapon_bonus", 0)),
-		int(player.get("stats", {}).get("arcana", 0))
-	))
-	var attack_total: int = _rng.randi_range(1, 6) + attack_stat
+func _roll_player_vs_monster_damage(player_index: int, monster_state: Dictionary) -> int:
+	var player: Dictionary = _players[player_index]
+	var physical_attack: int = int(player.get("stats", {}).get("might", 0)) + int(player.get("weapon_bonus", 0))
+	var magic_attack: int = int(player.get("stats", {}).get("arcana", 0))
+	var is_physical := physical_attack >= magic_attack
+	var attack_stat: int = maxi(physical_attack, magic_attack)
+	var attack_bonus: Dictionary = _consume_power_strike_bonus(player_index, is_physical)
+	var attack_total: int = _rng.randi_range(1, 6) + attack_stat + int(attack_bonus.get("attack_bonus", 0))
 	var defense_total := _rng.randi_range(1, 6) + _monster_defense_value(monster_state)
-	return maxi(1, attack_total - defense_total + int(_rules.get("combat", {}).get("base_damage_bonus", 2)))
+	return maxi(1, attack_total - defense_total + int(_rules.get("combat", {}).get("base_damage_bonus", 2)) + int(attack_bonus.get("damage_bonus", 0)))
 
 
 func _roll_monster_damage_to_player(monster_state: Dictionary, player: Dictionary, is_boss: bool) -> int:
 	var attack_total := _rng.randi_range(1, 6) + _monster_attack_value(monster_state, is_boss)
-	var defense_total := _rng.randi_range(1, 6) + int(player.get("stats", {}).get("guard", 0)) + int(player.get("armor_bonus", 0))
+	var defense_total := _rng.randi_range(1, 6) + _player_guard_total(player)
 	return maxi(1, attack_total - defense_total + int(_rules.get("combat", {}).get("base_damage_bonus", 2)))
 
 
